@@ -134,6 +134,20 @@ returns at equal risk (2004-01-08 to 2026-11-20, leverage pays T-bills + 0.5%):
 Realized vol falls short of the target because the 1.5x leverage cap binds in calm markets.
 Source: `reports/risk_matched_18.6/`.
 
+**Financing sensitivity.** At 1.28x average exposure, the edge depends on the cost of leverage.
+Same forecasts, backtest rerun per borrow spread over T-bills:
+
+| Borrow spread | VT CAGR | B&H CAGR | VT Sharpe | B&H Sharpe | VT max DD |
+|---|---|---|---|---|---|
+| 0.5% (base case) | 10.8% | 10.2% | 0.57 | 0.52 | −46.0% |
+| 2.0% | 10.3% | 10.2% | 0.54 | 0.52 | −46.1% |
+| 2.5% | 10.1% | 10.2% | 0.53 | 0.52 | −46.2% |
+| 4.0% | 9.6% | 10.2% | 0.51 | 0.52 | −46.3% |
+
+The return edge is gone at a spread between 2.0% and 2.5%, and the Sharpe edge between 3% and 4%.
+The drawdown advantage holds at every spread tested.
+Source: `reports/risk_matched_18.6/borrow_spread_sensitivity.csv`.
+
 **Correlation of daily vol-targeted returns** (common window; buy & hold in brackets):
 
 | | SPY | TLT | GLD |
@@ -187,6 +201,8 @@ pytest -q                                      # 35 tests, offline
 python scripts\run_backtest.py --ticker SPY    # or TLT / GLD -> reports\<TICKER>\
 python scripts\signal_experiments.py           # 192-configuration signal study -> reports\experiments\
 python scripts\run_multi_asset.py              # SPY vs TLT vs GLD + equal-weight book -> reports\multi_asset\
+python scripts\run_backtest.py --ticker SPY --target-vol 0.186 --output reports\risk_matched_18.6
+python scripts\borrow_spread_sensitivity.py    # matched-risk edge vs cost of leverage
 python scripts\run_backtest.py --synthetic     # offline: simulated GJR-GARCH market, no download
 ```
 
@@ -209,7 +225,7 @@ src/volcast/
   metrics.py       R²_OS, QLIKE, Mincer-Zarnowitz, Diebold-Mariano, IC, Sharpe/Sortino, regimes
   pipeline.py      fit_forecasts() (slow) and evaluate_strategy() (fast)
   plotting.py      report figures
-scripts/           run_backtest.py, signal_experiments.py, run_multi_asset.py
+scripts/           run_backtest.py, signal_experiments.py, run_multi_asset.py, borrow_spread_sensitivity.py
 tests/             leakage, backtest, signal and cross-asset tests (35)
 reports/           <TICKER>/, experiments/, multi_asset/: results.md, CSVs, figures
 ```
@@ -234,3 +250,7 @@ reports/           <TICKER>/, experiments/, multi_asset/: results.md, CSVs, figu
 - Campbell, J. & Thompson, S. (2008). Predicting Excess Stock Returns Out of Sample. *Review of Financial Studies*.
 - Diebold, F. & Mariano, R. (1995). Comparing Predictive Accuracy. *Journal of Business & Economic Statistics*.
 - López de Prado, M. (2018). *Advances in Financial Machine Learning*. Wiley (ch. 7, purged cross-validation).
+
+## License
+
+MIT. See [LICENSE](LICENSE).
