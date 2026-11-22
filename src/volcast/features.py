@@ -158,9 +158,10 @@ def proxy_calibration(df: pd.DataFrame, window: int = 756) -> pd.Series:
     """Point-in-time ratio sqrt(sum r_cc^2 / sum rv_proxy) over a trailing window.
 
     The model forecasts the range-based proxy, but the portfolio's P&L variance is driven
-    by close-to-close returns, and exp(E[log vol]) understates E[vol]. Multiplying the vol
-    forecast by this factor (estimated only from data up to t) makes sizing hit the
-    target vol on average. Without it a 12% target typically realises ~14%.
+    by close-to-close returns. Multiplying the vol forecast by this factor (estimated only
+    from data up to t) converts proxy units to close-to-close units. Without it a 12% target
+    typically realises ~14%. It does not correct the separate Jensen gap of exp(log forecast);
+    see strategy.forecast_bias_correction.
     """
     r2 = np.log(df["close"] / df["close"].shift(1)) ** 2
     rv = daily_realized_variance(df)

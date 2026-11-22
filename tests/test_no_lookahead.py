@@ -50,36 +50,40 @@ def test_calibration_is_point_in_time(market):
     pd.testing.assert_series_equal(a, b)
 
 
-def test_targets_are_strictly_future(market):
+@pytest.mark.parametrize("h", [HORIZON, 21])
+def test_targets_are_strictly_future(market, h):
     """Changing day t+1.. must change the target at t, and nothing at t-h or earlier."""
     cut = 700
-    a = build_targets(market, HORIZON)
-    b = build_targets(scramble_after(market, cut), HORIZON)
+    a = build_targets(market, h, ret_horizon=h)
+    b = build_targets(scramble_after(market, cut), h, ret_horizon=h)
     # Labels whose window ends at or before `cut` are unaffected...
-    pd.testing.assert_series_equal(a["y_vol"].iloc[: cut - HORIZON + 1], b["y_vol"].iloc[: cut - HORIZON + 1])
+    for col in ("y_vol", "y_ret"):
+        pd.testing.assert_series_equal(a[col].iloc[: cut - h + 1], b[col].iloc[: cut - h + 1])
     # ...and the label at `cut` depends only on what comes after it.
     assert not np.isclose(a["y_vol"].iloc[cut], b["y_vol"].iloc[cut])
     assert not np.isclose(a["y_ret"].iloc[cut], b["y_ret"].iloc[cut])
-    assert a["y_vol"].iloc[-HORIZON:].isna().all() and np.isnan(a["y_ret"].iloc[-1])
+    assert a["y_vol"].iloc[-h:].isna().all() and a["y_ret"].iloc[-h:].isna().all()
 
 
+@pytest.mark.parametrize("h", [HORIZON, 21])
 @pytest.mark.parametrize("window", [None, 250])
-def test_walk_forward_splits_are_purged(window):
-    for fold in walk_forward_splits(2000, 500, 21, HORIZON, window):
-        assert fold.train_idx.max() + HORIZON < fold.test_idx.min()
+def test_walk_forward_splits_are_purged(window, h):
+    for fold in walk_forward_splits(2000, 500, 21, h, window):
+        assert fold.train_idx.max() + h < fold.test_idx.min()
         if window is not None:
             assert len(fold.train_idx) <= window
 
 
-def test_walk_forward_predictions_ignore_the_future(market):
+@pytest.mark.parametrize("h", [HORIZON, 21])
+def test_walk_forward_predictions_ignore_the_future(market, h):
     """End-to-end: scaler + GridSearchCV alpha + Ridge + forecasts are all point-in-time."""
     cut_date_pos = 850
 
     def predict(df: pd.DataFrame) -> pd.Series:
         f = build_features(df).dropna()
-        t = build_targets(df, HORIZON).reindex(f.index)
-        ridge = walk_forward(f, t["y_vol"], penalised_regression("ridge", np.logspace(-2, 3, 6), 3, HORIZON),
-                             min_train=300, refit_every=21, horizon=HORIZON)
+        t = build_targets(df, h).reindex(f.index)
+        ridge = walk_forward(f, t["y_vol"], penalised_regression("ridge", np.logspace(-2, 3, 6), 3, h),
+                             min_train=300, refit_every=21, horizon=h)
         return ridge.predictions
 
     base = predict(market)
@@ -99,3 +103,33 @@ def test_har_ols_matches_closed_form():
     pred = HAROLS().fit(X, y).predict(X)
     beta = np.linalg.lstsq(np.c_[np.ones(500), X], y, rcond=None)[0]
     np.testing.assert_allclose(pred, np.c_[np.ones(500), X] @ beta, rtol=1e-8)
+
+
+@pytest.mark.parametrize("h", [HORIZON, 21])
+def test_vol_bias_correction_uses_only_matured_errors(h):
+    """The smearing factor at t may use a forecast error only once its label window has ended."""
+    from volcast.strategy import forecast_bias_correction
+
+    rng = np.random.default_rng(4)
+    idx = pd.bdate_range("2010-01-01", periods=1200)
+    pred = pd.Series(rng.normal(-1.8, 0.3, len(idx)), index=idx)
+    y = pred + rng.normal(0.1, 0.3, len(idx))
+    base = forecast_bias_correction(y, pred, h, min_obs=100)
+    cut = 800
+    # The label for the forecast at `cut` covers days cut+1..cut+h: change that and everything after.
+    y2 = y.copy()
+    y2.iloc[cut:] += 5.0
+    moved = forecast_bias_correction(y2, pred, h, min_obs=100)
+    pd.testing.assert_series_equal(base.iloc[: cut + h], moved.iloc[: cut + h])
+    assert not np.isclose(base.iloc[cut + h], moved.iloc[cut + h])
+
+
+def test_vol_bias_correction_recovers_a_constant_gap():
+    """A forecast that is always 0.2 too low in logs needs exactly exp(0.2) more vol."""
+    from volcast.strategy import forecast_bias_correction
+
+    idx = pd.bdate_range("2010-01-01", periods=600)
+    pred = pd.Series(-2.0, index=idx)
+    out = forecast_bias_correction(pred + 0.2, pred, HORIZON, min_obs=100)
+    assert out.iloc[: 100 + HORIZON - 1].isna().all()
+    np.testing.assert_allclose(out.dropna(), np.exp(0.2))

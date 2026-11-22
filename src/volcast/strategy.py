@@ -36,6 +36,23 @@ def expected_excess_return(pred_ret: pd.Series, prevailing_mean: pd.Series,
     return prior_premium / TRADING_DAYS + tilt
 
 
+def forecast_bias_correction(y_log_vol: pd.Series, pred_log_vol: pd.Series, horizon: int,
+                             min_obs: int = 252) -> pd.Series:
+    """Point-in-time multiplier for exp(log-vol forecast): sqrt(mean of exp(2 e)), e = y - pred.
+
+    exp(forecast of log vol) estimates the median, not the mean (Jensen's inequality), so it
+    under-sizes risk. This smearing estimator (Duan, 1983) measures the gap on the model's own
+    past out-of-sample errors, in variance terms because a vol target controls variance.
+    The error of the forecast made at s is only known at the close of s + horizon (when its
+    label window ends), so errors are shifted by `horizon` rows before use. Returns NaN until
+    `min_obs` errors have matured; callers treat that as no correction.
+    """
+    err = y_log_vol.reindex(pred_log_vol.index) - pred_log_vol
+    known = err.shift(horizon)
+    second_moment = np.exp(2 * known).expanding(min_periods=min_obs).mean()
+    return np.sqrt(second_moment).rename("vol_bias_correction")
+
+
 def smooth_signal(mu: pd.Series, ema_span: int | None = None, hold: int = 1) -> pd.Series:
     """Causal smoothing of the expected-return signal.
 

@@ -27,7 +27,7 @@ from .metrics import (
     rolling_sharpe,
 )
 from .models import HAROLS, WalkForwardResult, har_inference_table, penalised_regression, walk_forward
-from .strategy import expected_excess_return, target_weights
+from .strategy import expected_excess_return, forecast_bias_correction, target_weights
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +53,7 @@ class Forecasts:
     ret_metrics: pd.DataFrame
     har_inference: pd.DataFrame
     ret_horizon: int
+    vol_horizon: int = 5
 
 
 @dataclass
@@ -128,8 +129,25 @@ def fit_forecasts(cfg: Config, market: pd.DataFrame | None = None) -> Forecasts:
     labelled = targets["y_vol"].notna()
     har_inf = har_inference_table(feats.loc[labelled, HAR_FEATURES], targets.loc[labelled, "y_vol"],
                                   m.vol_horizon)
+    _warn_grid_edges("vol Ridge", vol_ridge, m.vol_alphas)
+    _warn_grid_edges(f"return {m.return_model.title()}", ret_model, ret_alphas)
     return Forecasts(df, feats, targets, vol_ridge, vol_har, ret_model, vol_metrics, ret_metrics,
-                     har_inf, m.ret_horizon)
+                     har_inf, m.ret_horizon, m.vol_horizon)
+
+
+def _warn_grid_edges(name: str, res: WalkForwardResult, grid, limit: float = 0.2) -> None:
+    """CV that keeps choosing the top of the alpha grid wants more shrinkage than allowed: the
+    fit is forced to keep features. Warn so the grid gets widened instead of silently biting.
+
+    Only the top edge is checked. The bottom edge is the no-penalty (OLS) limit: SPY's vol
+    Ridge picks 1e-3 in 25% of refits, but extending the grid to 1e-6 moves its forecasts by
+    < 1e-6 and leaves R2_OS unchanged at 0.707, so CV is just indifferent there.
+    """
+    a = res.alphas.dropna()
+    share = float(np.isclose(a, max(grid)).mean()) if len(a) else 0.0
+    if share > limit:
+        log.warning("%s: CV chose the top of the alpha grid in %.0f%% of refits; widen the grid",
+                    name, 100 * share)
 
 
 def evaluate_strategy(fc: Forecasts, s: StrategyConfig) -> StrategyResult:
@@ -137,7 +155,11 @@ def evaluate_strategy(fc: Forecasts, s: StrategyConfig) -> StrategyResult:
     df = fc.market
     exp_ret = expected_excess_return(fc.ret_model.predictions, fc.ret_model.benchmark,
                                      s.prior_premium, fc.ret_horizon)
-    weights = target_weights(fc.vol_ridge.predictions, exp_ret, s, vol_calibration=proxy_calibration(df))
+    calibration = proxy_calibration(df)
+    if s.vol_bias_correction:
+        bias = forecast_bias_correction(fc.targets["y_vol"], fc.vol_ridge.predictions, fc.vol_horizon)
+        calibration = calibration.reindex(bias.index).ffill() * bias.fillna(1.0)
+    weights = target_weights(fc.vol_ridge.predictions, exp_ret, s, vol_calibration=calibration)
     asset_ret = df["close"].pct_change()
     backtests = {STRATEGY_NAMES[c]: run_backtest(weights[c], asset_ret, df["rf"], s) for c in weights}
     backtests["Buy & hold"] = buy_and_hold(weights.index, asset_ret, df["rf"], s)

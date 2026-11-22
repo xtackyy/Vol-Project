@@ -74,7 +74,22 @@ def _run_one(job: tuple[str, argparse.Namespace, int]) -> dict:
         "bh_vol": p.loc[BH, "ann_vol"], "bh_cagr": p.loc[BH, "ann_return"],
     }
     return {"ticker": ticker, "row": row, "vt": sr.backtests[VT].net, "bh": sr.backtests[BH].net,
+            "vt_weight": sr.backtests[VT].weight, "cost": cfg.strategy.cost_per_unit_traded,
             "rf": fc.market["rf"], "regimes": sr.regimes}
+
+
+def rebalancing_cost(sleeves: pd.DataFrame, exposure: pd.DataFrame, cost: pd.Series) -> pd.Series:
+    """Daily cost of resetting an equal-weight book of sleeves at each close.
+
+    Over a day sleeve i drifts from 1/n to (1/n)(1 + r_i)/(1 + r_book). Moving capital back
+    means trading |drift| of book NAV in sleeve i, i.e. |drift| x |exposure_i| of its ETF,
+    at that ETF's cost per unit traded.
+    """
+    n = sleeves.shape[1]
+    growth = 1 + sleeves
+    drift = (growth / n).div(growth.mean(axis=1), axis=0) - 1 / n
+    traded = drift.abs() * exposure.reindex(sleeves.index).abs()
+    return (traded * cost[sleeves.columns]).sum(axis=1).rename("rebalancing_cost")
 
 
 def _corr_table(rets: dict[str, pd.Series]) -> pd.DataFrame:
@@ -115,9 +130,14 @@ def main() -> None:
     corr_vt, corr_bh = _corr_table(vt), _corr_table(bh)
     common = pd.concat(vt, axis=1).dropna()
     rf = results[tickers[0]]["rf"]
-    # Each sleeve already targets the same vol, so equal weights are ~equal risk. Daily
-    # rebalancing between sleeves is assumed free here (sleeve costs are already included).
-    combo = common.mean(axis=1)
+    # Each sleeve already targets the same vol, so equal weights are ~equal risk. The book is
+    # reset to equal weights at every close, and that rebalancing is charged on top of the
+    # sleeves' own trading costs.
+    exposure = pd.DataFrame({t: results[t]["vt_weight"] for t in tickers})
+    cost = pd.Series({t: results[t]["cost"] for t in tickers})
+    rebal = rebalancing_cost(common, exposure, cost)
+    combo = common.mean(axis=1) - rebal
+    rebal_bps = float(rebal.mean() * TRADING_DAYS * 1e4)
     book = {**{t: common[t] for t in tickers}, COMBO: combo}
     book_perf = pd.DataFrame({k: performance(v, rf) for k, v in book.items()}).T
     years = len(common) / TRADING_DAYS
@@ -174,8 +194,9 @@ def main() -> None:
         "",
         _fmt_perf(book_perf[["ann_return", "ann_vol", "sharpe", "sortino", "max_drawdown", "calmar"]]).to_markdown(),
         "",
-        f"Average pairwise correlation {avg_corr:.2f}; diversification ratio (avg sleeve vol / book vol) "
-        f"{div_ratio:.2f}.",
+        (f"Average pairwise correlation {avg_corr:.2f}; diversification ratio (avg sleeve vol / book vol) "
+         f"{div_ratio:.2f}. The book is reset to equal weights daily; that rebalancing costs "
+         f"{rebal_bps:.1f} bps/yr and is deducted."),
         "",
         "## Regime breakdown per asset",
         "",
@@ -193,7 +214,8 @@ def main() -> None:
     print(_fmt_perf(book_perf[["ann_return", "ann_vol", "sharpe", "max_drawdown"]]).to_string())
     worst = min(d.min() for k, d in dd.items() if k != COMBO)
     print(f"avg pairwise corr {avg_corr:.2f} | diversification ratio {div_ratio:.2f} | "
-          f"worst sleeve drawdown {worst:.1%} vs book {dd[COMBO].min():.1%}")
+          f"worst sleeve drawdown {worst:.1%} vs book {dd[COMBO].min():.1%} | "
+          f"book rebalancing cost {rebal_bps:.1f} bps/yr (deducted)")
     print(f"\nReport: {out / 'results.md'}  Per-asset reports: {out.parent}/<TICKER>/")
 
 

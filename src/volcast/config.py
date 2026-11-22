@@ -45,7 +45,9 @@ class ModelConfig:
     ret_horizon: int = 5             # Model B target: summed excess return over t+1..t+h
     vol_alphas: tuple[float, ...] = tuple(np.logspace(-3, 4, 22))
     ret_ridge_alphas: tuple[float, ...] = tuple(np.logspace(0, 6, 19))
-    ret_lasso_alphas: tuple[float, ...] = tuple(np.logspace(-6, -2.5, 15))
+    # Wide enough that CV never picks the top edge (the old 1e-2.5 cap was hit in 69% of SPY
+    # 5-day refits, forcing features in). At the top end every coefficient is zero: "no signal".
+    ret_lasso_alphas: tuple[float, ...] = tuple(np.logspace(-6, 0, 25))
 
 
 @dataclass(frozen=True)
@@ -64,6 +66,8 @@ class StrategyConfig:
     slippage_bps: float = 1.0        # half-spread + impact, per unit traded
     borrow_spread_bps: float = 50.0  # annual spread over rf paid on leverage > 1
     short_fee_bps: float = 25.0      # annual stock-borrow fee on short notional (long-short variant)
+    vol_bias_correction: bool = True  # scale exp(log-vol forecast) by a point-in-time smearing
+                                      # factor from past errors (Jensen: exp(E[log s]) < E[s])
 
     @property
     def cost_per_unit_traded(self) -> float:
