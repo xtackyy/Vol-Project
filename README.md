@@ -1,5 +1,8 @@
 # HAR-Ridge Volatility Forecasting & Vol-Targeted ETF Strategies
 
+[![tests](https://github.com/xtackyy/Vol-Project/actions/workflows/tests.yml/badge.svg)](https://github.com/xtackyy/Vol-Project/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 Out-of-sample forecasting of 5-day realized volatility and 5-day excess returns, used to size
 vol-targeted positions in SPY, TLT and GLD, backtested net of costs and financing.
 
