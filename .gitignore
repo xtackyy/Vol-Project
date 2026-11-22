@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.venv/
+data/*.csv
+reports/*.csv
+reports/*.json
+!reports/figures/.gitkeep
+.ipynb_checkpoints/
