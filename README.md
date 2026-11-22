@@ -190,7 +190,9 @@ Rebalancing between sleeves is assumed free; trading costs are charged inside ea
 - **192 signal configurations were tested on one history** (96 settings × long-only / long-short). The best
   net Sharpe was 0.59 vs 0.57 for vol target only, an in-sample upper bound that is not evidence of skill.
 
-## Quickstart (Windows PowerShell)
+## Quickstart
+
+Windows PowerShell:
 
 ```powershell
 python -m venv .venv
@@ -204,6 +206,15 @@ python scripts\run_multi_asset.py              # SPY vs TLT vs GLD + equal-weigh
 python scripts\run_backtest.py --ticker SPY --target-vol 0.186 --output reports\risk_matched_18.6
 python scripts\borrow_spread_sensitivity.py    # matched-risk edge vs cost of leverage
 python scripts\run_backtest.py --synthetic     # offline: simulated GJR-GARCH market, no download
+```
+
+macOS / Linux: the same commands with forward slashes, after activating with `source`:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]" && pytest -q
+python scripts/run_backtest.py --ticker SPY
 ```
 
 The first real-data run downloads prices from Yahoo Finance and caches them as CSVs in `data\`. Later runs
