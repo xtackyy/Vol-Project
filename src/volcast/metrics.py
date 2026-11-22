@@ -161,3 +161,53 @@ def regime_table(backtests: dict, rf: pd.Series, regimes: dict[str, tuple[str, s
 def rolling_sharpe(net: pd.Series, rf: pd.Series, window: int = TRADING_DAYS) -> pd.Series:
     excess = net - rf.reindex(net.index).fillna(0.0)
     return excess.rolling(window).mean() / excess.rolling(window).std() * np.sqrt(TRADING_DAYS)
+
+
+# ----------------------------------------------------------------------------- multiple testing
+
+EULER_GAMMA = 0.5772156649015329
+
+
+def expected_max_sharpe(sr_variance: float, n_trials: float) -> float:
+    """Expected best Sharpe among `n_trials` skill-less strategies (Bailey & Lopez de Prado, 2014).
+
+    `sr_variance` is the variance of the Sharpe ratios across the trials, in the same
+    per-period units as the Sharpe being tested. Uses the extreme-value approximation
+    E[max of N std normals] ~ (1 - g) z(1 - 1/N) + g z(1 - 1/(N e)), g = Euler's constant.
+    """
+    if n_trials < 2:
+        return 0.0
+    z = stats.norm.ppf
+    return float(np.sqrt(sr_variance) * ((1 - EULER_GAMMA) * z(1 - 1 / n_trials)
+                                         + EULER_GAMMA * z(1 - 1 / (n_trials * np.e))))
+
+
+def probabilistic_sharpe(ret: pd.Series, sr_benchmark: float = 0.0) -> float:
+    """P(true per-period Sharpe > sr_benchmark), allowing for skew and fat tails (Bailey & LdP, 2012).
+
+    `ret` are per-period excess returns and `sr_benchmark` is per-period (not annualised).
+    """
+    x = pd.Series(ret).dropna().to_numpy()
+    sr = x.mean() / x.std(ddof=1)
+    g3, g4 = stats.skew(x), stats.kurtosis(x, fisher=False)
+    denom = np.sqrt(1 - g3 * sr + (g4 - 1) / 4 * sr ** 2)
+    return float(stats.norm.cdf((sr - sr_benchmark) * np.sqrt(len(x) - 1) / denom))
+
+
+def deflated_sharpe(best_ret: pd.Series, trial_sharpes: np.ndarray,
+                    n_trials: float | None = None) -> dict[str, float]:
+    """Deflated Sharpe ratio: the probabilistic Sharpe of the best trial, tested against the
+    best Sharpe expected from `n_trials` trials with no skill instead of against zero.
+
+    `trial_sharpes` are the per-period Sharpe ratios of every configuration tried (including
+    the best); `n_trials` defaults to their count. Sharpe values returned are annualised.
+    """
+    srs = np.asarray(trial_sharpes, dtype=float)
+    n = len(srs) if n_trials is None else n_trials
+    x = pd.Series(best_ret).dropna()
+    sr0 = expected_max_sharpe(float(np.var(srs, ddof=1)), n)
+    ann = np.sqrt(TRADING_DAYS)
+    return {"n_trials": float(n), "sharpe_best_ann": float(x.mean() / x.std(ddof=1) * ann),
+            "sharpe_trials_sd_ann": float(np.std(srs, ddof=1) * ann),
+            "expected_max_sharpe_ann": sr0 * ann, "psr_vs_zero": probabilistic_sharpe(x, 0.0),
+            "deflated_sharpe": probabilistic_sharpe(x, sr0)}

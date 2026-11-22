@@ -66,7 +66,7 @@ trading costs as above. Cash earns T-bills, leverage above 1x pays T-bills + 0.5
   and kept the strategy flat. It is replaced by a fixed per-asset prior, so only the feature *tilt* can
   move the position.
 
-**Tests.** 42 tests pass (`pytest -q`, also run by CI on every push). Most work by scrambling or shocking
+**Tests.** 48 tests pass (`pytest -q`, also run by CI on every push). Most work by scrambling or shocking
 the future and asserting that the past does not move:
 
 | File | Tests | Checks |
@@ -75,6 +75,7 @@ the future and asserting that the past does not move:
 | `tests/test_cross_asset.py` | 12 | A shock to an outside series on day *t* leaves features on *t* unchanged; cross-asset features ignore the future; as-of alignment never looks forward; dead feeds become NaN |
 | `tests/test_backtest.py` | 6 | Weights applied with a one-day lag; costs scale with turnover; no-trade band; leverage pays rf + spread |
 | `tests/test_signal_refinements.py` | 10 | 5-day targets strictly future; 5-day return model ignores the future; EMA/hold smoothing is causal; long-short and short-fee accounting |
+| `tests/test_robustness.py` | 6 | Next-open fills never earn the overnight gap after a signal and match close fills when there is no gap; expected-max-Sharpe matches simulation; deflated Sharpe falls as trials rise |
 
 **Problems found and fixed.** All results below use the corrected code.
 - *VIX look-ahead.* The first SPY model used VIX at the same day's close; VIX settles 15 minutes after SPY.
@@ -197,6 +198,35 @@ strategy variant was fixed in advance: vol target only, sized on the 21-day inst
 With overlapping 21-day labels there are only ~270 / 240 / 215 effective observations, so only SPY's 21-day
 Ridge edge over HAR is significant. Full tables: `reports/horizons/`.
 
+### 5. Robustness: execution timing and multiple testing
+
+**Next-open execution.** The base case fills at the same close that generates the signal. Here the
+same target weights are filled at the next morning's open instead, so the overnight gap after each
+signal is earned by the old position (same costs per unit traded):
+
+| | Sharpe, close fill | Sharpe, next-open fill | Max DD, close fill | Max DD, next-open fill |
+|---|---|---|---|---|
+| SPY vol target only | 0.57 | 0.58 | −28.9% | −28.6% |
+| TLT vol target only | 0.21 | 0.21 | −37.1% | −37.5% |
+| GLD vol target only | 0.51 | 0.52 | −40.1% | −39.1% |
+
+The result does not depend on trading at the close. Source: `reports/execution/`.
+
+**Deflated Sharpe ratio** (Bailey & López de Prado, 2014) for the best of the 192 signal
+configurations. It asks whether the best Sharpe beats the best one expected from 192 tries with no skill,
+given how widely the trials' Sharpes vary (s.d. 0.27) and the best run's skew and fat tails:
+
+| Test | Best Sharpe | Expected best from luck | Deflated Sharpe, N = 192 | Deflated Sharpe, effective N |
+|---|---|---|---|---|
+| Best configuration vs zero | 0.60 | 0.75 | 0.25 | 0.32 (N ≈ 115) |
+| Best configuration's return over vol target only | 0.22 | 0.59 | 0.03 | 0.05 (N ≈ 83) |
+
+A deflated Sharpe is a probability; about 0.95 would count as significant. Neither test comes close: the
+best configuration is what a search of this size produces by chance, and its extra return over plain vol
+targeting has no support. Vol target only was fixed before the search, so it is not deflated. The trials
+are correlated, so N = 192 is conservative; the effective N (ρ + (1 − ρ)N, ρ the average pairwise
+correlation of trial returns) gives the same answer. Source: `reports/experiments/deflated_sharpe.csv`.
+
 ## Key research takeaways
 
 - **Vol targeting de-risks equity drawdowns, and far less so elsewhere.** Equity vol rises as prices fall
@@ -217,7 +247,10 @@ Ridge edge over HAR is significant. Full tables: `reports/horizons/`.
   to 7.1%, with Sharpe 0.80 vs 0.78 for the best sleeve and a −16.9% max drawdown. In this window the gain
   is risk reduction, not added return. Reaching 12% vol would need about 1.7x leverage and its financing cost.
 - **192 signal configurations were tested on one history** (96 settings × long-only / long-short). The best
-  net Sharpe was 0.60 vs 0.57 for vol target only, an in-sample upper bound that is not evidence of skill.
+  net Sharpe was 0.60 vs 0.57 for vol target only. Its deflated Sharpe is 0.25 (0.03 for its edge over vol
+  target only), so it is a product of the search, not evidence of skill.
+- **Filling at the next open instead of the close changes nothing material.** Sharpe moves by at most
+  0.01 on every asset.
 
 ## Quickstart
 
@@ -227,12 +260,13 @@ Windows PowerShell:
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
-pytest -q                                      # 42 tests, offline
+pytest -q                                      # 48 tests, offline
 
 python scripts\run_backtest.py --ticker SPY    # or TLT / GLD -> reports\<TICKER>\
-python scripts\signal_experiments.py           # 192-configuration signal study -> reports\experiments\
+python scripts\signal_experiments.py           # 192-configuration signal study + deflated Sharpe -> reports\experiments\
 python scripts\run_multi_asset.py              # SPY vs TLT vs GLD + equal-weight book -> reports\multi_asset\
 python scripts\horizon_comparison.py           # 5- vs 21-day forecasts -> reports\horizons\
+python scripts\execution_sensitivity.py        # close vs next-open fills -> reports\execution\
 python scripts\run_backtest.py --ticker SPY --target-vol 0.186 --output reports\risk_matched_18.6
 python scripts\borrow_spread_sensitivity.py    # edge vs cost of leverage at the 18.6% target
 python scripts\run_backtest.py --synthetic     # offline: simulated GJR-GARCH market, no download
@@ -262,13 +296,14 @@ src/volcast/
   validation.py    purged walk-forward splits
   models.py        Ridge / Lasso pipelines (GridSearchCV + TimeSeriesSplit(gap)), HAR-OLS baseline
   strategy.py      vol targeting, Jensen correction, return signal, smoothing, long-only and long-short
-  backtest.py      daily engine: drift, no-trade band, costs, financing, short fee
-  metrics.py       R²_OS, QLIKE, Mincer-Zarnowitz, Diebold-Mariano, IC, Sharpe/Sortino, regimes
+  backtest.py      daily engine: drift, no-trade band, costs, financing, short fee; next-open variant
+  metrics.py       R²_OS, QLIKE, Mincer-Zarnowitz, Diebold-Mariano, IC, Sharpe/Sortino, regimes, deflated Sharpe
   pipeline.py      fit_forecasts() (slow) and evaluate_strategy() (fast)
   plotting.py      report figures
-scripts/           run_backtest, signal_experiments, run_multi_asset, horizon_comparison, borrow_spread_sensitivity
-tests/             leakage, backtest, signal and cross-asset tests (42)
-reports/           <TICKER>/, experiments/, multi_asset/, horizons/: results.md, CSVs, figures
+scripts/           run_backtest, signal_experiments, run_multi_asset, horizon_comparison,
+                   execution_sensitivity, borrow_spread_sensitivity
+tests/             leakage, backtest, signal, cross-asset and robustness tests (48)
+reports/           <TICKER>/, experiments/, multi_asset/, horizons/, execution/: results.md, CSVs, figures
 ```
 
 ## Limitations & next steps
@@ -276,12 +311,11 @@ reports/           <TICKER>/, experiments/, multi_asset/, horizons/: results.md,
 - **Noisy vol proxy.** Daily range-based RV. Intraday 5-minute RV would give a cleaner target and a better
   vol forecast.
 - **Curve slope.** The 2-year Treasury yield isn't on Yahoo Finance, so TLT uses 10y minus 3-month (`^TNX − ^IRX`).
-- **Execution.** Trades fill at the same close that generates the signal. Next-open execution would be more
-  conservative.
+- **Execution.** Headline results fill at the signal's own close. Next-open fills give the same results
+  (section 5), but both assume the same cost per unit traded; opening-auction spreads can be wider.
 - **One history.** Every result comes from a single path of each asset. The equal-weight book has 18 years of
   data, and GLD's sample starts after most of the 2008 crisis.
-- **Next steps.** Intraday RV; risk-parity instead of equal weights; a deflated Sharpe ratio for the signal
-  grid; more assets (QQQ, IEF) via profiles.
+- **Next steps.** Intraday RV; risk-parity instead of equal weights; more assets (QQQ, IEF) via profiles.
 
 ## References
 
@@ -290,6 +324,7 @@ reports/           <TICKER>/, experiments/, multi_asset/, horizons/: results.md,
 - Patton, A. (2011). Volatility Forecast Comparison Using Imperfect Volatility Proxies. *Journal of Econometrics*.
 - Moreira, A. & Muir, T. (2017). Volatility-Managed Portfolios. *Journal of Finance*.
 - Campbell, J. & Thompson, S. (2008). Predicting Excess Stock Returns Out of Sample. *Review of Financial Studies*.
+- Bailey, D. & López de Prado, M. (2014). The Deflated Sharpe Ratio: Correcting for Selection Bias, Backtest Overfitting and Non-Normality. *Journal of Portfolio Management*.
 - Diebold, F. & Mariano, R. (1995). Comparing Predictive Accuracy. *Journal of Business & Economic Statistics*.
 - López de Prado, M. (2018). *Advances in Financial Machine Learning*. Wiley (ch. 7, purged cross-validation).
 

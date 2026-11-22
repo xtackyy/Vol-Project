@@ -73,6 +73,59 @@ def run_backtest(
                           s(held, "weight"), s(trades, "turnover"))
 
 
+def run_backtest_next_open(
+    target: pd.Series,
+    overnight_ret: pd.Series,
+    intraday_ret: pd.Series,
+    rf: pd.Series,
+    cfg: StrategyConfig,
+    band: float | None = None,
+) -> BacktestResult:
+    """Same engine, but a target decided at the close of t is traded at the *open* of t+1.
+
+    Day t is split at the open: the weight carried from the previous close earns the
+    overnight gap (close t-1 -> open t), then the book trades to target[t-1] and earns the
+    intraday return (open t -> close t). So the overnight gap after a signal is never
+    earned by the new position. Financing (rf, leverage spread, short fee) accrues half a
+    day per segment. Costs per unit traded are unchanged, although opening-auction spreads
+    can be wider than at the close.
+    """
+    band = cfg.rebalance_band if band is None else band
+    idx = target.index
+    r_on = overnight_ret.reindex(idx).fillna(0.0).to_numpy()
+    r_id = intraday_ret.reindex(idx).fillna(0.0).to_numpy()
+    rf_half = rf.reindex(idx).fillna(0.0).to_numpy() / 2
+    borrow = cfg.borrow_spread_bps / 1e4 / TRADING_DAYS / 2
+    short_fee = cfg.short_fee_bps / 1e4 / TRADING_DAYS / 2
+    cost_rate = cfg.cost_per_unit_traded
+    tgt = target.to_numpy()
+
+    def segment(w: float, r: float, rf_: float) -> tuple[float, float]:
+        g = w * r + (1 - w) * rf_ - max(w - 1.0, 0.0) * borrow - max(-w, 0.0) * short_fee
+        return g, (w * (1 + r) / (1 + g) if (1 + g) != 0 else w)
+
+    n = len(idx)
+    net, gross, costs, held, trades = (np.zeros(n) for _ in range(5))
+    w = 0.0  # start flat; the first trade happens at the open after the first signal
+    for t in range(1, n):
+        g1, w_open = segment(w, r_on[t], rf_half[t])
+        goal = tgt[t - 1]
+        w_new = goal if abs(goal - w_open) > band or (goal == 0.0 and w_open != 0.0) else w_open
+        trade = abs(w_new - w_open)
+        c = trade * cost_rate
+        g2, w_close = segment(w_new, r_id[t], rf_half[t])
+        gross[t] = (1 + g1) * (1 + g2) - 1
+        net[t] = (1 + g1) * (1 - c) * (1 + g2) - 1
+        costs[t], trades[t], held[t] = c, trade, w_new
+        w = w_close
+
+    def s(a: np.ndarray, name: str) -> pd.Series:
+        return pd.Series(a, index=idx, name=name)
+
+    return BacktestResult(s(net, "net"), s(gross, "gross"), s(costs, "costs"),
+                          s(held, "weight"), s(trades, "turnover"))
+
+
 def buy_and_hold(index: pd.Index, asset_ret: pd.Series, rf: pd.Series, cfg: StrategyConfig) -> BacktestResult:
     """Benchmark: fully invested from the first out-of-sample close, same cost model."""
     return run_backtest(pd.Series(1.0, index=index), asset_ret, rf, cfg, band=0.0)

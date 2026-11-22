@@ -23,9 +23,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 from volcast.config import Config, DataConfig, ModelConfig, StrategyConfig  # noqa: E402
+from volcast.metrics import deflated_sharpe  # noqa: E402
 from volcast.pipeline import evaluate_strategy, fit_forecasts  # noqa: E402
 
 HORIZONS = (1, 5)
@@ -50,6 +52,31 @@ def _fit(args: tuple[Config, int]):
     return h, fit_forecasts(cfg)
 
 
+def multiple_testing(trial_excess: dict, trial_active: dict) -> pd.DataFrame:
+    """Deflated Sharpe of the best signal configuration, two ways.
+
+    * vs zero: does the best net excess return survive having tried every configuration?
+    * vs vol target only: does the best configuration's *extra* return over plain vol
+      targeting (same band) survive? This is the question the signal study asks.
+    The trials are highly correlated, so N = all configurations is conservative. The
+    effective number rho + (1 - rho) N, with rho the average pairwise correlation of trial
+    returns, is reported as a less conservative alternative.
+    """
+    rows = []
+    for test, trials in (("best signal vs zero", trial_excess),
+                         ("best signal vs vol target only", trial_active)):
+        ret = pd.DataFrame(trials).dropna()
+        # A config identical to vol target only has zero active return: count it as Sharpe 0.
+        srs = np.nan_to_num((ret.mean() / ret.std(ddof=1)).to_numpy(), nan=0.0, posinf=0.0, neginf=0.0)
+        best = ret.iloc[:, int(np.nanargmax(srs))]
+        corr = ret.corr().to_numpy()
+        rho = float(np.nanmean(corr[~np.eye(len(corr), dtype=bool)]))
+        for label, n in (("all trials", len(srs)), ("effective trials", rho + (1 - rho) * len(srs))):
+            rows.append({"test": test, "trial_count": label, "avg_trial_corr": rho,
+                         "best_config": "/".join(map(str, best.name)), **deflated_sharpe(best, srs, n)})
+    return pd.DataFrame(rows)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--ticker", default="SPY")
@@ -65,13 +92,20 @@ def main() -> None:
         forecasts = dict(ex.map(_fit, [(base, h) for h in HORIZONS]))
 
     rows, regime_rows = [], []
+    trial_excess, trial_active = {}, {}  # daily returns per signal config, for the deflated Sharpe
     for h, prior, ema, hold, band in itertools.product(HORIZONS, PRIORS, EMA_SPANS, HOLDS, BANDS):
         s = replace(base.strategy, signal_ema_span=ema, signal_hold=hold, rebalance_band=band,
                     prior_premium=prior)
         res = evaluate_strategy(forecasts[h], s)
         cfg_cols = {"ret_horizon": h, "prior": prior, "ema": ema or 0, "hold": hold, "band": band}
+        rf = forecasts[h].market["rf"]
+        vt_net = res.backtests["Vol target only"].net
         for variant, (name, col) in VARIANTS.items():
             p = res.performance.loc[name]
+            net = res.backtests[name].net
+            key = (*cfg_cols.values(), variant)
+            trial_excess[key] = net - rf.reindex(net.index).fillna(0.0)
+            trial_active[key] = net - vt_net
             rows.append({**cfg_cols, "variant": variant, "sharpe_net": p.sharpe, "sharpe_gross": p.sharpe_gross,
                          "cost_drag_bps": p.cost_drag_bps, "turnover": p.ann_turnover,
                          "ann_return": p.ann_return, "ann_vol": p.ann_vol, "max_dd": p.max_drawdown,
@@ -101,6 +135,9 @@ def main() -> None:
                 "bench": fc.ret_model.benchmark}.items()}, axis=1).dropna(how="all").to_csv(
         a.output / "return_forecasts.csv")
 
+    dsr = multiple_testing(trial_excess, trial_active)
+    dsr.to_csv(a.output / "deflated_sharpe.csv", index=False)
+
     pd.set_option("display.width", 200, "display.max_rows", 200)
     sig = grid[grid.variant.isin(VARIANTS)]
     print("\n=== Return model quality by horizon ===")
@@ -112,6 +149,8 @@ def main() -> None:
     print(ref.round(3).to_string())
     print(f"\n{len(sig)} signal configurations tested. The best row is selected in-sample: treat it as "
           "an upper bound, not an expected Sharpe.")
+    print("\n=== Deflated Sharpe (Bailey & Lopez de Prado 2014) of the best configuration ===")
+    print(dsr.round(3).to_string(index=False))
     print(f"Files: {a.output}")
 
 
