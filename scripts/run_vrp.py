@@ -5,6 +5,7 @@ r"""Variance risk premium extension: one command runs every milestone built so f
 1. Data, implied / realized variance, VRP descriptive statistics, first two plots.
 2. 21-day HAR walk-forward forecasts vs VIX: accuracy, Mincer-Zarnowitz, encompassing.
 3. Synthetic variance-swap backtests of every strategy, with robustness checks.
+4. Remaining figures, drawn from the files milestones 2 and 3 saved.
 """
 from __future__ import annotations
 
@@ -366,6 +367,25 @@ def milestone3(cfg: VRPConfig, data: pd.DataFrame, fc: pd.DataFrame) -> None:
     print(etp.round(3).to_string())
 
 
+def milestone4(cfg: VRPConfig) -> None:
+    swap = SwapConfig()
+    out, figs = cfg.output_dir, cfg.figure_dir
+    fc = pd.read_csv(out / "forecasts.csv", index_col=0, parse_dates=True)
+    pnl = pd.read_csv(out / "strategy_daily_pnl.csv", index_col=0, parse_dates=True)
+    coef = pd.read_csv(out / "signal_vrp_on_spread.csv", index_col=0)
+    plots.forecasts_calm_vs_crisis(fc, {"Calm: 2017": ("2017-01-01", "2017-12-31"),
+                                        "Crisis: 2020 Covid": ("2020-01-01", "2020-06-30")},
+                                   figs / "3_forecasts_calm_vs_crisis.png")
+    th0 = f"{cfg.headline_threshold:g}"
+    cols = {"Always short | staggered": "Always short",
+            f"Conditional (spread > {th0}) | staggered": f"Conditional (spread > {th0})",
+            "Sized by spread | staggered": "Sized by spread",
+            "Always short, vol-targeted | staggered": "Always short, vol-targeted"}
+    plots.cumulative_pnl(pnl[list(cols)].rename(columns=cols), swap.capital,
+                         {k: REGIMES[k] for k in CRISES}, figs / "4_cumulative_pnl.png")
+    plots.spread_vs_vrp(fc, coef, figs / "5_spread_vs_vrp.png")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.parse_args()
@@ -380,6 +400,7 @@ def main() -> None:
     milestone1(cfg, data, vrp, non_overlapping(vrp, cfg.horizon))
     fc = milestone2(cfg, data, vrp)
     milestone3(cfg, data, fc)
+    milestone4(cfg)
     print(f"Files: {cfg.output_dir}, {cfg.figure_dir}")
 
 

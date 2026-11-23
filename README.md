@@ -19,6 +19,9 @@ vol-targeted positions in SPY, TLT and GLD, backtested net of costs and financin
   −28.9% vs −55.2%. For TLT and GLD, Sharpe improves by 0.05 and 0.02.
 - **The three sleeves are nearly uncorrelated** (average pairwise correlation 0.02). An equal-weight book
   has Sharpe 0.80 at 7.1% vol, vs 0.78 for the best single sleeve (SPY) on the same 2008-2026 window.
+- **Extension: variance risk premium.** VIX overprices SPY's subsequent vol by 3.7 vol points on average,
+  but the HAR forecast does not time a short-vol trade, and every sizing tested is wiped out in a crash
+  ([section](#extension-variance-risk-premium)).
 
 ## Methodology & anti-leakage safeguards
 
@@ -66,7 +69,7 @@ trading costs as above. Cash earns T-bills, leverage above 1x pays T-bills + 0.5
   and kept the strategy flat. It is replaced by a fixed per-asset prior, so only the feature *tilt* can
   move the position.
 
-**Tests.** 48 tests pass (`pytest -q`, also run by CI on every push). Most work by scrambling or shocking
+**Tests.** 61 tests pass (`pytest -q`, also run by CI on every push). Most work by scrambling or shocking
 the future and asserting that the past does not move:
 
 | File | Tests | Checks |
@@ -75,6 +78,7 @@ the future and asserting that the past does not move:
 | `tests/test_cross_asset.py` | 12 | A shock to an outside series on day *t* leaves features on *t* unchanged; cross-asset features ignore the future; as-of alignment never looks forward; dead feeds become NaN |
 | `tests/test_backtest.py` | 6 | Weights applied with a one-day lag; costs scale with turnover; no-trade band; leverage pays rf + spread |
 | `tests/test_signal_refinements.py` | 10 | 5-day targets strictly future; 5-day return model ignores the future; EMA/hold smoothing is causal; long-short and short-fee accounting |
+| `tests/test_vrp.py` | 13 | VRP labels use only t+1..t+21; variance scaling and signs; the HAR forecast ignores scrambled future prices and contains no VIX; swaps pay strike² − realized variance and ignore the entry day's return; every sizing rule (spread, vol target) uses only data up to t |
 | `tests/test_robustness.py` | 6 | Next-open fills never earn the overnight gap after a signal and match close fills when there is no gap; expected-max-Sharpe matches simulation; deflated Sharpe falls as trials rise |
 
 **Problems found and fixed.** All results below use the corrected code.
@@ -252,6 +256,111 @@ correlation of trial returns) gives the same answer. Source: `reports/experiment
 - **Filling at the next open instead of the close changes nothing material.** Sharpe moves by at most
   0.01 on every asset.
 
+## Extension: variance risk premium
+
+**What it tests.** It tests whether S&P 500 options (VIX) systematically overprice the volatility SPY then
+delivers, and whether this repo's HAR vol forecast can time a short-volatility trade that harvests that gap.
+
+**Answer.** The premium is large and persistent, but the HAR forecast does not time it. Every way of selling
+it at this size is wiped out at least once. The binding problem is the left tail, not the signal.
+
+### Findings
+
+- **The premium is real.**
+  - Over 405 non-overlapping 21-day blocks (1993-2026), VIX averaged 19.4 vs 15.8 realized vol.
+  - That is a premium of +3.7 vol points, positive in 82% of months (Newey-West t = 13.1 on daily data).
+  - It is heavily left-skewed (skew −2.4). The worst block lost 51 vol points (Oct 2008); a Covid entry on
+    2020-02-20 lost 69.
+- **HAR forecasts realized vol about as well as VIX, but adds little to it.**
+  - Out of sample (7,212 days from 1998): MAE 5.20 vs 6.06 for VIX, QLIKE 0.318 vs 0.317 (difference
+    insignificant).
+  - In an encompassing regression, HAR gets weight 0.22 (t 2.6) on daily data but 0.10 (t 0.45) on
+    non-overlapping blocks.
+  - VIX minus HAR predicts the next month's premium with slope 0.23 (t 2.6) but R² 0.010.
+- **Timing with that spread does not beat always short.**
+  - Across all 7 thresholds × 2 roll schemes, the best Sharpe over always short is −0.30 (deflated Sharpe
+    0.009).
+  - The best raw Sharpe, 0.71, is what a 14-trial search produces by chance on a single roll calendar
+    (0.27 on the other).
+- **Vol-targeted sizing does not stop the wipeouts.**
+  - The rule was fixed before it was run: a 10% P&L vol target from trailing 63-day vol.
+  - It entered Covid at normal size and Feb 2018 at 1.8× (after a calm 2017), because the shocks arrive
+    faster than trailing vol reacts.
+- **Only the VIX term structure helped (from 2006).**
+  - Staying flat when VIX > VIX3M cut the 2008 loss from −99% to −20% and lifted Sharpe from 0.34 to 0.60.
+  - It still lost 101% of capital in Covid and is sensitive to the roll date.
+
+### Results
+
+Synthetic 21-day SPY variance swaps, $10k vega per $1m capital, staggered daily entries (no roll-date luck),
+1 vol point cost. Returns are % of initial capital, not compounded. A drawdown beyond −100% means the
+account was wiped out.
+
+| Strategy (1998-02 to 2026-11) | Ann. return | Sharpe | Max drawdown | Worst month | Covid 2020 |
+|---|---|---|---|---|---|
+| Always short | 15.1% | 0.53 | −176% | −125% | −148% |
+| Conditional: sell only when VIX > HAR forecast | 11.6% | 0.45 | −177% | −127% | −151% |
+| Sized by the spread (cap 2×) | 20.8% | 0.50 | −306% | −218% | −260% |
+| Always short, vol-targeted (10%) | 9.3% | 0.44 | −138% | −72% | −97% |
+| Constant size at the same average risk *(hindsight scale, comparison only)* | 11.1% | 0.53 | −129% | −92% | −108% |
+| **From 2006-07 (VIX3M available)** | | | | | |
+| Always short | 11.0% | 0.34 | −176% | −125% | −148% |
+| Flat when VIX > VIX3M | 13.6% | 0.60 | −115% | −73% | −101% |
+| **Tradable check:** long SVXY, compounded, from 2011-10 | 10.6% | 0.54 | −95% | −90% | |
+
+![Cumulative P&L and drawdowns of the short-variance strategies](reports/figures/vrp/4_cumulative_pnl.png)
+
+![VIX and HAR forecasts vs realized vol, calm 2017 vs Covid 2020](reports/figures/vrp/3_forecasts_calm_vs_crisis.png)
+
+The other figures (implied vs realized with stress windows, VRP histogram, spread vs subsequent VRP) are in
+`reports/figures/vrp/`. Every number above comes from `reports/vrp/results.md`,
+`results_forecast.md` and `results_strategies.md`.
+
+**How many configurations were tested.** 192 backtest configurations are reported in
+`results_strategies.md`: the threshold grid, all 21 roll dates per rule, the backwardation variants, and the
+cost and timing checks. None were dropped. The headline threshold (0) and the vol-target rule were fixed
+before running.
+
+### Assumptions
+
+- **Synthetic variance swap.**
+  - Strike = VIX at entry − 1 vol point (bid-ask haircut; 0.5 also reported).
+  - Payoff = notional × (strike² − realized variance), marked to market daily with VIX for the unexpired
+    days.
+  - No cap on realized variance, no margin calls, no forced liquidation.
+- **SPY stands in for the S&P 500.** VIX is a 30-calendar-day SPX quantity; realized vol uses 21 SPY
+  close-to-close returns (range-based RV agrees: correlation 0.97).
+- **Timing.** Size is decided from data up to t; the realized leg starts on t+1. VIX settles 15 minutes after
+  SPY closes, so a t+1 entry (strike at the next day's VIX) is also reported: Sharpe is unchanged (0.53 always short, 0.45 conditional).
+- **Leakage tests.** The HAR forecast contains no VIX input, and 13 tests in `tests/test_vrp.py` shock or
+  scramble the future and check that sizes, labels and forecasts made earlier do not move.
+- **Implementation.** Data is cached as CSV (parquet would need pyarrow) and settings live in a dataclass
+  (a YAML config would need pyyaml); statsmodels is the only added dependency.
+
+### Limitations
+
+- **Not a tradable P&L.** Real variance swaps are OTC with wider, crisis-dependent spreads. A real book would
+  have been closed out by margin calls long before a −176% drawdown.
+- **Early HAR forecasts run high.** The Jensen (smearing) correction is estimated from the model's own early
+  errors, which include the 1997-98 crises, so 1998-2007 forecasts sit above realized vol. The uncorrected
+  forecast is reported alongside (MAE 4.33, QLIKE 0.354).
+- **Roll-date sensitivity.** With monthly rolls, Sharpe ranges 0.32-0.65 for always short across the 21
+  possible roll dates, which is why the table uses staggered entries.
+- **The size is too large, and was left as fixed.** $10k vega per $1m gives always short 28.6% P&L vol,
+  about 2.9× a 10% target. It was not re-tuned after seeing the results.
+
+### Next steps
+
+- Price the trade from real SPX option chains (replicating strip or delta-hedged straddles) instead of a
+  synthetic swap.
+- Use the skew (put vs call implied vol) and the full VIX term structure as conditioning variables.
+- Model margin and the size a fixed loss budget allows before the trade is placed.
+- Add tail hedges (long OTM puts or VIX calls) and measure what they cost in carry.
+
+### CV bullets
+
+*(placeholder, to be written)*
+
 ## Quickstart
 
 Windows PowerShell:
@@ -260,7 +369,7 @@ Windows PowerShell:
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
-pytest -q                                      # 48 tests, offline
+pytest -q                                      # 61 tests, offline
 
 python scripts\run_backtest.py --ticker SPY    # or TLT / GLD -> reports\<TICKER>\
 python scripts\signal_experiments.py           # 192-configuration signal study + deflated Sharpe -> reports\experiments\
@@ -270,6 +379,7 @@ python scripts\execution_sensitivity.py        # close vs next-open fills -> rep
 python scripts\run_backtest.py --ticker SPY --target-vol 0.186 --output reports\risk_matched_18.6
 python scripts\borrow_spread_sensitivity.py    # edge vs cost of leverage at the 18.6% target
 python scripts\run_backtest.py --synthetic     # offline: simulated GJR-GARCH market, no download
+python scripts\run_vrp.py                      # variance risk premium extension -> reports\vrp\
 ```
 
 macOS / Linux: the same commands with forward slashes, after activating with `source`:
@@ -300,10 +410,11 @@ src/volcast/
   metrics.py       R²_OS, QLIKE, Mincer-Zarnowitz, Diebold-Mariano, IC, Sharpe/Sortino, regimes, deflated Sharpe
   pipeline.py      fit_forecasts() (slow) and evaluate_strategy() (fast)
   plotting.py      report figures
+src/vrp/           variance risk premium extension: data, targets, forecast, backtest, evaluate, plots
 scripts/           run_backtest, signal_experiments, run_multi_asset, horizon_comparison,
-                   execution_sensitivity, borrow_spread_sensitivity
-tests/             leakage, backtest, signal, cross-asset and robustness tests (48)
-reports/           <TICKER>/, experiments/, multi_asset/, horizons/, execution/: results.md, CSVs, figures
+                   execution_sensitivity, borrow_spread_sensitivity, run_vrp
+tests/             leakage, backtest, signal, cross-asset, robustness and VRP tests (61)
+reports/           <TICKER>/, experiments/, multi_asset/, horizons/, execution/, vrp/: results, CSVs, figures
 ```
 
 ## Limitations & next steps
@@ -327,6 +438,8 @@ reports/           <TICKER>/, experiments/, multi_asset/, horizons/, execution/:
 - Bailey, D. & López de Prado, M. (2014). The Deflated Sharpe Ratio: Correcting for Selection Bias, Backtest Overfitting and Non-Normality. *Journal of Portfolio Management*.
 - Diebold, F. & Mariano, R. (1995). Comparing Predictive Accuracy. *Journal of Business & Economic Statistics*.
 - López de Prado, M. (2018). *Advances in Financial Machine Learning*. Wiley (ch. 7, purged cross-validation).
+- Carr, P. & Wu, L. (2009). Variance Risk Premiums. *Review of Financial Studies*.
+- Bollerslev, T., Tauchen, G. & Zhou, H. (2009). Expected Stock Returns and Variance Risk Premia. *Review of Financial Studies*.
 
 ## License
 
