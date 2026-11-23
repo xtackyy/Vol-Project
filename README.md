@@ -20,6 +20,9 @@ vol-targeted positions in SPY, TLT and GLD, backtested net of costs and financin
 - **SPY's Sharpe edge comes from 2008-09 alone.** Without those two years vol targeting's Sharpe is 0.02
   *below* buy & hold, and it has the higher calendar-year Sharpe in only 2 of 23 years. TLT's and GLD's
   smaller edges are spread out (ahead in 12 of 21 and 10 of 19 years). Source: `reports/stability/`.
+- **Pre-registered holdout on IWM, EFA, EEM and IEF.** The vol forecast beats HAR-OLS on all four and vol
+  targeting halves the equity drawdowns, but its Sharpe is lower than buy & hold on all four
+  ([section](#holdout-results-pre-registered)).
 - **The three sleeves are nearly uncorrelated** (average pairwise correlation 0.02). An equal-weight book
   has Sharpe 0.80 at 7.1% vol, vs 0.77 for the best single sleeve (SPY) on the same 2008-2026 window.
 - **Extension: variance risk premium.** VIX overprices SPY's subsequent vol by 3.7 vol points on average,
@@ -275,6 +278,44 @@ correlation of trial returns) gives the same answer. Source: `reports/experiment
   target only), so it is a product of the search, not evidence of skill.
 - **Filling at the close instead of the next open changes nothing material.** Sharpe moves by at most
   0.01 on every asset.
+
+## Holdout results (pre-registered)
+
+The rules below were written in [HOLDOUT.md](HOLDOUT.md) and frozen (tag `holdout-freeze-2026-11`)
+before either run. Each run was done once; nothing was changed afterwards.
+
+**Vol targeting on four ETFs it had never seen** (`reports/holdout/results.md`):
+
+| | IWM | EFA | EEM | IEF |
+|---|---|---|---|---|
+| Vol R²_OS, Ridge-HAR / HAR-OLS | 0.662 / 0.618 | 0.608 / 0.548 | 0.599 / 0.562 | 0.533 / 0.513 |
+| Diebold-Mariano t | −7.71 | −8.51 | −6.38 | −2.39 |
+| Sharpe, vol target / buy & hold | 0.31 / 0.39 | 0.21 / 0.29 | 0.14 / 0.22 | 0.23 / 0.27 |
+| Max DD, vol target / buy & hold | −25.8% / −58.6% | −31.5% / −61.0% | −29.0% / −66.4% | −35.6% / −23.9% |
+| Sharpe gap without 2008-09 | −0.11 | −0.11 | −0.11 | −0.02 |
+| Years with higher Sharpe | 2 of 23 | 3 of 22 | 3 of 20 | 4 of 21 |
+
+- (a) Ridge-HAR beats HAR-OLS on at least 3 of 4: **pass** (4 of 4).
+- (b) Smaller max drawdown than buy & hold on the 3 equity ETFs: **pass** (it roughly halves it).
+- (c) Sharpe gap, reported as is: **vol targeting has the lower Sharpe on all four**, by 0.03-0.09.
+
+So the vol forecast generalises, and so does the drawdown cut on equities. The small Sharpe gain seen on
+SPY, TLT and GLD does not: on new assets vol targeting gives up some Sharpe for the smaller drawdown. On
+IEF it does not even cut the drawdown (−35.6% vs −23.9%).
+
+**VRP on QQQ with VXN** (`reports/holdout/vrp_QQQ/`, signals 2004-04 to 2026-11):
+
+- (a) Mean VRP positive with Newey-West t > 2: **pass** (+4.0 vol points, t = 10.7, positive in 82% of
+  blocks).
+- (b) The conditional rule does not beat always short on Sharpe: **fail**. Conditional 0.40 vs always
+  short 0.35 (staggered; 0.19 vs 0.17 monthly). The gap is not significant: the deflated Sharpe of the best
+  threshold's edge over always short is 0.35.
+- (c) Always short loses more than 100% of capital in a crash: **pass** (Covid −123%).
+
+The premium is smaller and decays faster on QQQ: rolling 12-month Sharpe 1.38 / 0.95 / 0.75 by thirds,
+and at a 2 vol point cost always short has a negative Sharpe (−0.08). One labelling flaw in the frozen
+code: the QQQ results file says the swap is struck at "VIX" and repeats a sentence about SPY's Feb 2018
+sizing; the swap is struck at VXN, and that sentence should be ignored for QQQ.
 
 ## Extension: variance risk premium
 
