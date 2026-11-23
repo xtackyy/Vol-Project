@@ -7,7 +7,14 @@ import pytest
 
 from volcast.config import ModelConfig
 from volcast.data import simulate_market
-from vrp.backtest import SwapConfig, conditional, short_variance_pnl, sized, staggered
+from vrp.backtest import (
+    SwapConfig,
+    conditional,
+    short_variance_pnl,
+    sized,
+    staggered,
+    vol_target_size,
+)
 from vrp.forecast import VIX_FEATURES, har_features, har_forecasts
 from vrp.targets import (
     build_vrp,
@@ -151,6 +158,23 @@ def test_sizes_at_t_ignore_later_spreads():
     later.iloc[600:] += 50
     for rule in (lambda s: conditional(s, 0.0), sized):
         pd.testing.assert_series_equal(rule(spread).iloc[:600], rule(later).iloc[:600])
+
+
+def test_vol_target_size_uses_only_past_pnl():
+    rng = np.random.default_rng(4)
+    idx = pd.bdate_range("2000-01-01", periods=400)
+    pnl = pd.Series(rng.normal(0, 2_000, len(idx)), index=idx)
+    later = pnl.copy()
+    later.iloc[300:] *= 20                                  # a crash after day 299
+    a = vol_target_size(pnl, 1e6, 0.10, 63, 2.0)
+    b = vol_target_size(later, 1e6, 0.10, 63, 2.0)
+    pd.testing.assert_series_equal(a.iloc[:300], b.iloc[:300])
+    assert b.iloc[300] < a.iloc[300]                        # the day-300 loss itself is known at t=300
+    assert (a.iloc[:62] == 0).all() and (a <= 2.0).all()    # no size before 63 days of history; capped
+    # Scale: daily std 2,000 -> annual ~31.7k = 3.2% of 1m, so a 10% target wants ~3.2x, capped at 2.
+    assert a.iloc[100] == 2.0
+    assert vol_target_size(pnl * 10, 1e6, 0.10, 63, 2.0).iloc[100] == pytest.approx(
+        0.10 * 1e6 / (pnl.iloc[38:101].std() * 10 * np.sqrt(252)))
 
 
 def test_staggered_tranches_build_to_constant_exposure(market):

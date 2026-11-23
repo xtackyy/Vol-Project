@@ -1,17 +1,22 @@
 # Short-variance backtests: synthetic 21-day SPY variance swaps
 
-Entries 1998-02-23 to 2026-11-20. Vega notional $10,000 per vol point, strike = VIX - 1 vol pt, daily mark-to-market, no cap on realized variance. Returns are P&L / $1,000,000 capital (not compounded). Headline conditional threshold (0) fixed before running; 7 thresholds shown. 141 backtest configurations in total in this file.
+Entries 1998-02-23 to 2026-11-20. Vega notional $10,000 per vol point, strike = VIX - 1 vol pt, daily mark-to-market, no cap on realized variance. Returns are P&L / $1,000,000 capital (not compounded). Headline conditional threshold (0) fixed before running; 7 thresholds shown. 192 backtest configurations in total in this file.
 
 ## Headline
 
-|                                      | ann_return   | ann_vol   |   sharpe |   sortino | max_drawdown   | worst_month   | worst_21d   |   skew_daily |   skew_monthly | time_in_market   |   avg_vega_in_market |
-|:-------------------------------------|:-------------|:----------|---------:|----------:|:---------------|:--------------|:------------|-------------:|---------------:|:-----------------|---------------------:|
-| Always short | monthly               | 16.5%        | 29.9%     |     0.55 |      0.62 | -140.9%        | -96.2%        | -140.2%     |        -9.17 |          -5.65 | 100.0%           |               10,000 |
-| Conditional (spread > 0) | monthly   | 13.2%        | 28.5%     |     0.46 |      0.52 | -142.9%        | -96.2%        | -140.2%     |       -10.41 |          -6.12 | 80.5%            |               10,000 |
-| Sized by spread | monthly            | 19.3%        | 50.7%     |     0.38 |      0.42 | -292.0%        | -189.1%       | -270.5%     |       -11.58 |          -6.78 | 78.2%            |               15,922 |
-| Always short | staggered             | 15.1%        | 28.6%     |     0.53 |      0.58 | -176.0%        | -124.9%       | -174.8%     |       -10.41 |          -7.49 | 100.0%           |                9,986 |
-| Conditional (spread > 0) | staggered | 11.6%        | 25.6%     |     0.45 |      0.49 | -177.2%        | -126.5%       | -173.8%     |       -12.55 |          -9.07 | 96.6%            |                8,141 |
-| Sized by spread | staggered          | 20.8%        | 42.1%     |     0.49 |      0.54 | -305.9%        | -217.9%       | -301.1%     |       -13.32 |          -9.51 | 93.2%            |               13,128 |
+|                                                                                    | ann_return   | ann_vol   |   sharpe |   sortino | max_drawdown   | worst_month   | worst_21d   |   skew_daily |   skew_monthly | time_in_market   |   avg_vega_in_market |
+|:-----------------------------------------------------------------------------------|:-------------|:----------|---------:|----------:|:---------------|:--------------|:------------|-------------:|---------------:|:-----------------|---------------------:|
+| Always short | monthly                                                             | 16.5%        | 29.9%     |     0.55 |      0.62 | -140.9%        | -96.2%        | -140.2%     |        -9.17 |          -5.65 | 100.0%           |               10,000 |
+| Conditional (spread > 0) | monthly                                                 | 13.2%        | 28.5%     |     0.46 |      0.52 | -142.9%        | -96.2%        | -140.2%     |       -10.41 |          -6.12 | 80.5%            |               10,000 |
+| Sized by spread | monthly                                                          | 19.3%        | 50.7%     |     0.38 |      0.42 | -292.0%        | -189.1%       | -270.5%     |       -11.58 |          -6.78 | 78.2%            |               15,922 |
+| Always short, vol-targeted | monthly                                               | 11.7%        | 21.9%     |     0.53 |      0.6  | -78.6%         | -31.8%        | -77.8%      |       -18.2  |          -3.31 | 100.0%           |                7,310 |
+| Conditional (spread > 0), vol-targeted | monthly                                   | 10.0%        | 21.2%     |     0.47 |      0.53 | -81.5%         | -31.8%        | -77.8%      |       -19.96 |          -3.48 | 80.5%            |                7,381 |
+| Always short | staggered                                                           | 15.1%        | 28.6%     |     0.53 |      0.58 | -176.0%        | -124.9%       | -174.8%     |       -10.41 |          -7.49 | 100.0%           |                9,986 |
+| Conditional (spread > 0) | staggered                                               | 11.6%        | 25.6%     |     0.45 |      0.49 | -177.2%        | -126.5%       | -173.8%     |       -12.55 |          -9.07 | 96.6%            |                8,141 |
+| Sized by spread | staggered                                                        | 20.8%        | 42.1%     |     0.49 |      0.54 | -305.9%        | -217.9%       | -301.1%     |       -13.32 |          -9.51 | 93.2%            |               13,128 |
+| Always short, vol-targeted | staggered                                             | 9.3%         | 21.0%     |     0.44 |      0.49 | -137.7%        | -72.0%        | -100.8%     |       -15.62 |          -6.44 | 100.0%           |                7,324 |
+| Conditional (spread > 0), vol-targeted | staggered                                 | 7.0%         | 19.9%     |     0.35 |      0.38 | -139.0%        | -72.1%        | -100.7%     |       -17.76 |          -7.42 | 96.6%            |                6,020 |
+| Always short, constant size at the same average risk (hindsight scale) | staggered | 11.1%        | 21.0%     |     0.53 |      0.58 | -128.9%        | -91.6%        | -128.1%     |       -10.41 |          -7.49 | 100.0%           |                7,317 |
 
 ## Threshold grid (all values)
 
@@ -34,13 +39,15 @@ Entries 1998-02-23 to 2026-11-20. Vega notional $10,000 per vol point, strike = 
 
 ## Roll-date sensitivity: all 21 monthly roll dates (min / median / max)
 
-| strategy                            |   ('sharpe', 'min') |   ('sharpe', '50%') |   ('sharpe', 'max') |   ('max_drawdown', 'min') |   ('max_drawdown', '50%') |   ('max_drawdown', 'max') |   ('worst_month', 'min') |   ('worst_month', '50%') |   ('worst_month', 'max') |
-|:------------------------------------|--------------------:|--------------------:|--------------------:|--------------------------:|--------------------------:|--------------------------:|-------------------------:|-------------------------:|-------------------------:|
-| Always short                        |               0.323 |               0.497 |               0.647 |                    -2.737 |                    -1.579 |                    -1.257 |                   -1.898 |                   -1.138 |                   -0.813 |
-| Conditional (spread > 0)            |               0.196 |               0.432 |               0.565 |                    -2.745 |                    -1.58  |                    -1.1   |                   -1.946 |                   -1.138 |                   -0.753 |
-| Sized by spread                     |               0.167 |               0.428 |               0.649 |                    -5.565 |                    -3.024 |                    -1.16  |                   -3.892 |                   -1.937 |                   -0.767 |
-| Always short (from VIX3M start)     |               0.122 |               0.346 |               0.53  |                    -2.737 |                    -1.579 |                    -1.257 |                   -1.898 |                   -1.138 |                   -0.813 |
-| Always short, flat in backwardation |               0.062 |               0.651 |               1.059 |                    -2.742 |                    -0.858 |                    -0.45  |                   -2.025 |                   -0.517 |                   -0.252 |
+| strategy                               |   ('sharpe', 'min') |   ('sharpe', '50%') |   ('sharpe', 'max') |   ('max_drawdown', 'min') |   ('max_drawdown', '50%') |   ('max_drawdown', 'max') |   ('worst_month', 'min') |   ('worst_month', '50%') |   ('worst_month', 'max') |
+|:---------------------------------------|--------------------:|--------------------:|--------------------:|--------------------------:|--------------------------:|--------------------------:|-------------------------:|-------------------------:|-------------------------:|
+| Always short                           |               0.323 |               0.497 |               0.647 |                    -2.737 |                    -1.579 |                    -1.257 |                   -1.898 |                   -1.138 |                   -0.813 |
+| Conditional (spread > 0)               |               0.196 |               0.432 |               0.565 |                    -2.745 |                    -1.58  |                    -1.1   |                   -1.946 |                   -1.138 |                   -0.753 |
+| Sized by spread                        |               0.167 |               0.428 |               0.649 |                    -5.565 |                    -3.024 |                    -1.16  |                   -3.892 |                   -1.937 |                   -0.767 |
+| Always short, vol-targeted             |               0.189 |               0.408 |               0.644 |                    -2.491 |                    -1.074 |                    -0.675 |                   -1.591 |                   -0.468 |                   -0.285 |
+| Conditional (spread > 0), vol-targeted |               0.072 |               0.319 |               0.527 |                    -2.474 |                    -1.057 |                    -0.675 |                   -1.591 |                   -0.468 |                   -0.285 |
+| Always short (from VIX3M start)        |               0.122 |               0.346 |               0.53  |                    -2.737 |                    -1.579 |                    -1.257 |                   -1.898 |                   -1.138 |                   -0.813 |
+| Always short, flat in backwardation    |               0.062 |               0.651 |               1.059 |                    -2.742 |                    -0.858 |                    -0.45  |                   -2.025 |                   -0.517 |                   -0.252 |
 
 ## Flat in backwardation (VIX > VIX3M), entries from 2006-07-17
 
@@ -69,29 +76,46 @@ Entries 1998-02-23 to 2026-11-20. Vega notional $10,000 per vol point, strike = 
 
 ## Robustness (staggered)
 
-|                                                    | ann_return   | ann_vol   |   sharpe |   sortino | max_drawdown   | worst_month   | worst_21d   |   skew_daily |   skew_monthly | time_in_market   |   avg_vega_in_market |
-|:---------------------------------------------------|:-------------|:----------|---------:|----------:|:---------------|:--------------|:------------|-------------:|---------------:|:-----------------|---------------------:|
-| Always short | cost 0.5 vol pt                     | 20.7%        | 27.9%     |     0.74 |      0.82 | -170.4%        | -121.1%       | -169.7%     |       -10.42 |          -7.48 | 100.0%           |                9,986 |
-| Always short | enter at t+1                        | 15.1%        | 28.6%     |     0.53 |      0.58 | -176.0%        | -124.9%       | -174.8%     |       -10.41 |          -7.49 | 100.0%           |                9,986 |
-| Conditional (spread > 0) | cost 0.5 vol pt         | 16.0%        | 24.9%     |     0.64 |      0.7  | -169.5%        | -122.8%       | -168.7%     |       -12.58 |          -9.01 | 96.6%            |                8,141 |
-| Conditional (spread > 0) | enter at t+1            | 11.5%        | 25.5%     |     0.45 |      0.49 | -178.3%        | -125.5%       | -172.8%     |       -12.49 |          -9.01 | 96.6%            |                8,140 |
-| Sized by spread | cost 0.5 vol pt                  | 27.6%        | 41.0%     |     0.67 |      0.74 | -293.6%        | -211.2%       | -292.2%     |       -13.34 |          -9.39 | 93.2%            |               13,128 |
-| Sized by spread | enter at t+1                     | 20.6%        | 41.8%     |     0.49 |      0.54 | -306.4%        | -215.0%       | -298.1%     |       -13.17 |          -9.4  | 93.2%            |               13,128 |
-| Always short, flat in backwardation | enter at t+1 | 13.2%        | 23.6%     |     0.56 |      0.62 | -121.9%        | -78.9%        | -109.7%     |        -7.47 |          -5.66 | 98.1%            |                9,068 |
-| Always short (same sample) | enter at t+1          | 11.0%        | 32.2%     |     0.34 |      0.37 | -176.0%        | -124.9%       | -174.8%     |       -10.05 |          -6.96 | 100.0%           |               10,000 |
+|                                                          | ann_return   | ann_vol   |   sharpe |   sortino | max_drawdown   | worst_month   | worst_21d   |   skew_daily |   skew_monthly | time_in_market   |   avg_vega_in_market |
+|:---------------------------------------------------------|:-------------|:----------|---------:|----------:|:---------------|:--------------|:------------|-------------:|---------------:|:-----------------|---------------------:|
+| Always short | cost 0.5 vol pt                           | 20.7%        | 27.9%     |     0.74 |      0.82 | -170.4%        | -121.1%       | -169.7%     |       -10.42 |          -7.48 | 100.0%           |                9,986 |
+| Always short | enter at t+1                              | 15.1%        | 28.6%     |     0.53 |      0.58 | -176.0%        | -124.9%       | -174.8%     |       -10.41 |          -7.49 | 100.0%           |                9,986 |
+| Conditional (spread > 0) | cost 0.5 vol pt               | 16.0%        | 24.9%     |     0.64 |      0.7  | -169.5%        | -122.8%       | -168.7%     |       -12.58 |          -9.01 | 96.6%            |                8,141 |
+| Conditional (spread > 0) | enter at t+1                  | 11.5%        | 25.5%     |     0.45 |      0.49 | -178.3%        | -125.5%       | -172.8%     |       -12.49 |          -9.01 | 96.6%            |                8,140 |
+| Sized by spread | cost 0.5 vol pt                        | 27.6%        | 41.0%     |     0.67 |      0.74 | -293.6%        | -211.2%       | -292.2%     |       -13.34 |          -9.39 | 93.2%            |               13,128 |
+| Sized by spread | enter at t+1                           | 20.6%        | 41.8%     |     0.49 |      0.54 | -306.4%        | -215.0%       | -298.1%     |       -13.17 |          -9.4  | 93.2%            |               13,128 |
+| Always short, vol-targeted | cost 0.5 vol pt             | 13.4%        | 20.2%     |     0.66 |      0.73 | -124.7%        | -69.7%        | -97.4%      |       -15.34 |          -6.35 | 100.0%           |                7,324 |
+| Always short, vol-targeted | enter at t+1                | 9.1%         | 21.5%     |     0.42 |      0.46 | -142.8%        | -75.5%        | -105.3%     |       -16.05 |          -6.72 | 100.0%           |                7,325 |
+| Conditional (spread > 0), vol-targeted | cost 0.5 vol pt | 10.2%        | 19.2%     |     0.53 |      0.58 | -126.5%        | -69.8%        | -97.4%      |       -17.48 |          -7.31 | 96.6%            |                6,020 |
+| Conditional (spread > 0), vol-targeted | enter at t+1    | 6.8%         | 20.4%     |     0.33 |      0.36 | -144.9%        | -75.6%        | -105.1%     |       -18.23 |          -7.74 | 96.6%            |                6,020 |
+| Always short, flat in backwardation | enter at t+1       | 13.2%        | 23.6%     |     0.56 |      0.62 | -121.9%        | -78.9%        | -109.7%     |        -7.47 |          -5.66 | 98.1%            |                9,068 |
+| Always short (same sample) | enter at t+1                | 11.0%        | 32.2%     |     0.34 |      0.37 | -176.0%        | -124.9%       | -174.8%     |       -10.05 |          -6.96 | 100.0%           |               10,000 |
+
+## Vol-targeted size on the first day of each stress window (target 10%, 63-day trailing vol, cap 2)
+
+The rule sizes from the last 63 days. Before the sharp crashes (2008, 2011, 2018, 2020) those were calm, so it entered at a normal size or larger (1.8x into Feb 2018, after the calm of 2017) and only cut after the first shock. The realized P&L vol overshoots the 10% target because a few crash days dominate the full-sample standard deviation.
+
+|                       |   size_at_start |   vix_at_start |
+|:----------------------|----------------:|---------------:|
+| 1998 LTCM / Russia    |            0.67 |          24.8  |
+| 2008 GFC              |            0.54 |          20.65 |
+| Aug 2011 US downgrade |            0.76 |          19.53 |
+| Feb 2018 Volmageddon  |            1.8  |          11.03 |
+| Mar 2020 Covid        |            0.79 |          14.38 |
+| 2022 bear market      |            0.4  |          17.22 |
 
 ## P&L in stress windows and calm years, % of capital (staggered)
 
-|                       | Always short | staggered   | Conditional (spread > 0) | staggered   | Sized by spread | staggered   | Always short | staggered (from 2006)   | Always short, flat in backwardation | staggered (from 2006)   |
-|:----------------------|:---------------------------|:---------------------------------------|:------------------------------|:---------------------------------------|:--------------------------------------------------------------|
-| 1998 LTCM / Russia    | -2.8%                      | -8.3%                                  | 0.0%                          | 0.0%                                   | 0.0%                                                          |
-| 2008 GFC              | -98.7%                     | -61.8%                                 | -116.5%                       | -98.7%                                 | -20.1%                                                        |
-| Aug 2011 US downgrade | -24.0%                     | -24.0%                                 | -42.9%                        | -24.0%                                 | -22.9%                                                        |
-| Feb 2018 Volmageddon  | -18.6%                     | -18.7%                                 | -21.1%                        | -18.6%                                 | -21.6%                                                        |
-| Mar 2020 Covid        | -147.7%                    | -151.3%                                | -260.4%                       | -147.7%                                | -101.3%                                                       |
-| 2022 bear market      | 1.0%                       | -1.6%                                  | 4.6%                          | 1.0%                                   | -2.4%                                                         |
-| Calm: 2005-2006       | 38.6%                      | 26.3%                                  | 45.2%                         | 18.3%                                  | 13.7%                                                         |
-| Calm: 2017            | 33.6%                      | 33.2%                                  | 49.9%                         | 33.6%                                  | 33.0%                                                         |
+|                       | Always short | staggered   | Conditional (spread > 0) | staggered   | Sized by spread | staggered   | Always short, vol-targeted | staggered   | Conditional (spread > 0), vol-targeted | staggered   | Always short, constant size at the same average risk (hindsight scale) | staggered   | Always short | staggered (from 2006)   | Always short, flat in backwardation | staggered (from 2006)   |
+|:----------------------|:---------------------------|:---------------------------------------|:------------------------------|:-----------------------------------------|:-----------------------------------------------------|:-------------------------------------------------------------------------------------|:---------------------------------------|:--------------------------------------------------------------|
+| 1998 LTCM / Russia    | -2.8%                      | -8.3%                                  | 0.0%                          | -4.5%                                    | -5.9%                                                | -2.0%                                                                                | 0.0%                                   | 0.0%                                                          |
+| 2008 GFC              | -98.7%                     | -61.8%                                 | -116.5%                       | -39.5%                                   | -21.3%                                               | -72.3%                                                                               | -98.7%                                 | -20.1%                                                        |
+| Aug 2011 US downgrade | -24.0%                     | -24.0%                                 | -42.9%                        | -24.4%                                   | -24.4%                                               | -17.6%                                                                               | -24.0%                                 | -22.9%                                                        |
+| Feb 2018 Volmageddon  | -18.6%                     | -18.7%                                 | -21.1%                        | -40.9%                                   | -40.9%                                               | -13.6%                                                                               | -18.6%                                 | -21.6%                                                        |
+| Mar 2020 Covid        | -147.7%                    | -151.3%                                | -260.4%                       | -96.5%                                   | -96.8%                                               | -108.2%                                                                              | -147.7%                                | -101.3%                                                       |
+| 2022 bear market      | 1.0%                       | -1.6%                                  | 4.6%                          | -0.8%                                    | -1.6%                                                | 0.7%                                                                                 | 1.0%                                   | -2.4%                                                         |
+| Calm: 2005-2006       | 38.6%                      | 26.3%                                  | 45.2%                         | 41.2%                                    | 29.8%                                                | 28.3%                                                                                | 18.3%                                  | 13.7%                                                         |
+| Calm: 2017            | 33.6%                      | 33.2%                                  | 49.9%                         | 39.2%                                    | 38.5%                                                | 24.6%                                                                                | 33.6%                                  | 33.0%                                                         |
 
 ## Tradable proxies (compounded daily returns; SVXY leverage changed on 2018-02-28)
 

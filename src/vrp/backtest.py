@@ -92,6 +92,18 @@ def sized(spread: pd.Series, cap: float = 2.0) -> pd.Series:
     return (spread / scale).clip(lower=0.0, upper=cap).fillna(0.0)
 
 
+def vol_target_size(unit_pnl: pd.Series, capital: float, target_vol: float, lookback: int,
+                    cap: float) -> pd.Series:
+    """Size that aims the strategy's P&L volatility at `target_vol` of capital.
+
+    `unit_pnl` is the daily $ P&L of a 1-unit always-short book. Its trailing `lookback`-day
+    volatility (data up to t only) sets the size of swaps opened at t: when the book has been
+    swinging hard, new swaps are smaller. Only new entries are resized; open swaps keep their size.
+    """
+    ann_vol = unit_pnl.rolling(lookback, min_periods=lookback).std() * np.sqrt(TRADING_DAYS)
+    return (target_vol * capital / ann_vol).clip(upper=cap).fillna(0.0)
+
+
 def not_backwardated(vix: pd.Series, vix3m: pd.Series) -> pd.Series:
     """1 when the VIX curve slopes up (VIX <= VIX3M) at t, 0 in backwardation, NaN before VIX3M exists."""
     return (vix <= vix3m).astype(float).where(vix3m.notna())

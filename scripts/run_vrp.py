@@ -30,6 +30,7 @@ from vrp.backtest import (  # noqa: E402
     short_variance_pnl,
     sized,
     staggered,
+    vol_target_size,
 )
 from vrp.config import CRISES, REGIMES, VRPConfig  # noqa: E402
 from vrp.data import load_vrp_data  # noqa: E402
@@ -186,16 +187,27 @@ def milestone3(cfg: VRPConfig, data: pd.DataFrame, fc: pd.DataFrame) -> None:
     spread = fc["spread"]
     start = spread.index[0]
     th0 = cfg.headline_threshold
+    # Vol-targeted size from the trailing P&L vol of a 1-unit always-short book (data up to t).
+    unit = short_variance_pnl(data["vix"], data["close"], staggered(data.index, h), swap)["pnl"]
+    vt = vol_target_size(unit, swap.capital, cfg.vt_target_vol, cfg.vt_lookback, cfg.size_cap).reindex(spread.index)
     rules = {
         "Always short": always(spread),
         f"Conditional (spread > {th0:g})": conditional(spread, th0),
         "Sized by spread": sized(spread, cfg.size_cap),
+        "Always short, vol-targeted": vt,
+        f"Conditional (spread > {th0:g}), vol-targeted": conditional(spread, th0) * vt,
     }
     roll, stag = roll_dates(spread.index, h), staggered(spread.index, h)
 
     # 1. Headline: monthly roll and daily-staggered tranches, 1998+.
     main = {f"{k} | monthly": _run(data, roll * r, swap, start) for k, r in rules.items()}
     main |= {f"{k} | staggered": _run(data, stag * r, swap, start) for k, r in rules.items()}
+    # Comparison only: constant-size always-short scaled (with hindsight) to the vol-targeted book's
+    # average risk, so drawdowns are compared at equal risk. P&L is linear in size, costs included.
+    plain, vt_book = main["Always short | staggered"], main["Always short, vol-targeted | staggered"]
+    k_match = vt_book["pnl"].std() / plain["pnl"].std()
+    main["Always short, constant size at the same average risk (hindsight scale) | staggered"] = plain.assign(
+        pnl=plain["pnl"] * k_match, vega=plain["vega"] * k_match)
     headline = _table(main, swap)
 
     # 2. Threshold grid (monthly and staggered), every value shown.
@@ -308,6 +320,10 @@ def milestone3(cfg: VRPConfig, data: pd.DataFrame, fc: pd.DataFrame) -> None:
                 t[c] = t[c].map(lambda x: f"{x:.2f}")
         return t.to_markdown()
 
+    # What the vol-targeted rule had on when each stress window began (size 1 = $10k vega).
+    vt_entry = pd.DataFrame({k: {"size_at_start": vt.asof(pd.Timestamp(a)),
+                                 "vix_at_start": data["vix"].asof(pd.Timestamp(a))}
+                             for k, (a, _) in REGIMES.items() if k in CRISES}).T
     n_configs = len(main) + len(grid) + len(offsets) + len(back) + len(robust)
     lines = [
         "# Short-variance backtests: synthetic 21-day SPY variance swaps", "",
@@ -324,6 +340,14 @@ def milestone3(cfg: VRPConfig, data: pd.DataFrame, fc: pd.DataFrame) -> None:
         f"## Deflated Sharpe of the best of the {len(srs)} threshold-grid configurations (annualised Sharpe)", "",
         dsr.to_markdown(), "",
         "## Robustness (staggered)", "", fmt(robustness), "",
+        f"## Vol-targeted size on the first day of each stress window (target {cfg.vt_target_vol:.0%}, "
+        f"{cfg.vt_lookback}-day trailing vol, cap {cfg.size_cap:g})", "",
+        "The rule sizes from the last 63 days. Before the sharp crashes (2008, 2011, 2018, 2020) "
+        "those were calm, so it entered "
+        "at a normal size or larger (1.8x into Feb 2018, after the calm of 2017) "
+        "and only cut after the first shock. The realized P&L vol overshoots the 10% target "
+        "because a few crash days dominate the full-sample standard deviation.", "",
+        vt_entry.round(2).to_markdown(), "",
         "## P&L in stress windows and calm years, % of capital (staggered)", "",
         crisis.map(lambda x: f"{x:.1%}").to_markdown(), "",
         "## Tradable proxies (compounded daily returns; SVXY leverage changed on 2018-02-28)", "",

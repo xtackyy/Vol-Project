@@ -22,6 +22,10 @@ class VRPConfig:
     headline_threshold: float = 0.0
     size_cap: float = 2.0
     cost_sensitivity_vol_pts: float = 0.5   # alternative haircut (the base case is SwapConfig's 1.0)
+    # Vol-targeted sizing, fixed before it was run: aim the P&L vol at 10% of capital using the
+    # trailing 63-day vol of a 1-unit always-short book; at most 2 units ($20k vega).
+    vt_target_vol: float = 0.10
+    vt_lookback: int = 63
 
 
 # Stress windows (named in the brief, plus two older ones the 1993+ sample covers) and calm years.
