@@ -111,6 +111,48 @@ def encompassing(rv_vol: pd.Series, a: pd.Series, b: pd.Series, lags: int) -> pd
     return ols_hac(rv_vol, pd.concat({a.name: a, b.name: b}, axis=1), lags)
 
 
+def strategy_stats(bt: pd.DataFrame, capital: float) -> dict[str, float]:
+    """Risk and return of a daily $ P&L series, as % of a fixed capital (no compounding).
+
+    Sharpe = mean / std of daily P&L x sqrt(252): a swap is unfunded, so the capital (margin)
+    would earn the risk-free rate on top and the P&L itself is already an excess return.
+    """
+    pnl = bt["pnl"]
+    downside = np.sqrt((pnl.clip(upper=0) ** 2).mean())
+    cum = pnl.cumsum()
+    monthly = pnl.resample("ME").sum()
+    return {
+        "ann_return": pnl.mean() * 252 / capital,
+        "ann_vol": pnl.std() * np.sqrt(252) / capital,
+        "sharpe": pnl.mean() / pnl.std() * np.sqrt(252),
+        "sortino": pnl.mean() / downside * np.sqrt(252),
+        "max_drawdown": (cum - cum.cummax()).min() / capital,
+        "worst_month": monthly.min() / capital,
+        "worst_21d": pnl.rolling(21).sum().min() / capital,
+        "skew_daily": float(pnl.skew()),
+        "skew_monthly": float(monthly.skew()),
+        "time_in_market": float((bt["vega"] > 0).mean()),
+        "avg_vega_in_market": float(bt.loc[bt["vega"] > 0, "vega"].mean()),
+    }
+
+
+def period_pnl(pnl: pd.Series, periods: dict[str, tuple[str, str]], capital: float) -> pd.Series:
+    """Total P&L inside each window, % of capital."""
+    return pd.Series({k: pnl.loc[a:b].sum() / capital for k, (a, b) in periods.items()})
+
+
+def etp_stats(ret: pd.Series) -> dict[str, float]:
+    """Compounded stats of a daily return series (the tradable-proxy check)."""
+    ret = ret.dropna()
+    eq = (1 + ret).cumprod()
+    years = len(ret) / 252
+    return {"start": ret.index[0].date(), "ann_return": eq.iloc[-1] ** (1 / years) - 1,
+            "ann_vol": ret.std() * np.sqrt(252), "sharpe": ret.mean() / ret.std() * np.sqrt(252),
+            "max_drawdown": (eq / eq.cummax() - 1).min(),
+            "worst_month": (1 + ret).resample("ME").prod().min() - 1,
+            "time_in_market": float((ret != 0).mean())}
+
+
 def vrp_by_year(blocks: pd.DataFrame) -> pd.DataFrame:
     g = blocks.groupby(blocks.index.year)
     return pd.DataFrame({"blocks": g.size(), "mean_implied_vol": g["iv_vol"].mean(),

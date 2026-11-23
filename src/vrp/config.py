@@ -16,6 +16,12 @@ class VRPConfig:
     raw_dir: Path = Path("data/raw")
     output_dir: Path = Path("reports/vrp")
     figure_dir: Path = Path("reports/figures/vrp")
+    # Strategies. The headline threshold (0: sell whenever VIX is above the HAR forecast) was fixed
+    # before any backtest was run; the whole grid is reported next to it.
+    thresholds: tuple[float, ...] = (-2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0)
+    headline_threshold: float = 0.0
+    size_cap: float = 2.0
+    cost_sensitivity_vol_pts: float = 0.5   # alternative haircut (the base case is SwapConfig's 1.0)
 
 
 # Stress windows (named in the brief, plus two older ones the 1993+ sample covers) and calm years.

@@ -4,6 +4,7 @@ r"""Variance risk premium extension: one command runs every milestone built so f
 
 1. Data, implied / realized variance, VRP descriptive statistics, first two plots.
 2. 21-day HAR walk-forward forecasts vs VIX: accuracy, Mincer-Zarnowitz, encompassing.
+3. Synthetic variance-swap backtests of every strategy, with robustness checks.
 """
 from __future__ import annotations
 
@@ -14,18 +15,34 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
+from volcast.metrics import deflated_sharpe  # noqa: E402
 from vrp import plots  # noqa: E402
+from vrp.backtest import (  # noqa: E402
+    SwapConfig,
+    always,
+    conditional,
+    etp_pnl,
+    not_backwardated,
+    roll_dates,
+    short_variance_pnl,
+    sized,
+    staggered,
+)
 from vrp.config import CRISES, REGIMES, VRPConfig  # noqa: E402
 from vrp.data import load_vrp_data  # noqa: E402
 from vrp.evaluate import (  # noqa: E402
     describe_vrp,
     encompassing,
+    etp_stats,
     forecast_accuracy,
     hac_mean_test,
     mz_table,
     ols_hac,
+    period_pnl,
+    strategy_stats,
     vrp_by_period,
     vrp_by_year,
     worst_blocks,
@@ -154,6 +171,177 @@ def milestone2(cfg: VRPConfig, data: pd.DataFrame, vrp: pd.DataFrame) -> pd.Data
     return fc
 
 
+def _run(data: pd.DataFrame, size: pd.Series, swap: SwapConfig, start, entry_lag: int = 0) -> pd.DataFrame:
+    return short_variance_pnl(data["vix"], data["close"], size, swap, entry_lag).loc[start:]
+
+
+def _table(results: dict[str, pd.DataFrame], swap: SwapConfig) -> pd.DataFrame:
+    return pd.DataFrame({k: strategy_stats(v, swap.capital) for k, v in results.items()}).T
+
+
+def milestone3(cfg: VRPConfig, data: pd.DataFrame, fc: pd.DataFrame) -> None:
+    """Variance-swap backtests. All sizes are decided from data up to the signal date."""
+    h, out = cfg.horizon, cfg.output_dir
+    swap = SwapConfig(horizon=h)
+    spread = fc["spread"]
+    start = spread.index[0]
+    th0 = cfg.headline_threshold
+    rules = {
+        "Always short": always(spread),
+        f"Conditional (spread > {th0:g})": conditional(spread, th0),
+        "Sized by spread": sized(spread, cfg.size_cap),
+    }
+    roll, stag = roll_dates(spread.index, h), staggered(spread.index, h)
+
+    # 1. Headline: monthly roll and daily-staggered tranches, 1998+.
+    main = {f"{k} | monthly": _run(data, roll * r, swap, start) for k, r in rules.items()}
+    main |= {f"{k} | staggered": _run(data, stag * r, swap, start) for k, r in rules.items()}
+    headline = _table(main, swap)
+
+    # 2. Threshold grid (monthly and staggered), every value shown.
+    grid = {}
+    for th in cfg.thresholds:
+        for label, sched in (("monthly", roll), ("staggered", stag)):
+            res = _run(data, sched * conditional(spread, th), swap, start)
+            grid[(th, label)] = strategy_stats(res, swap.capital)
+    grid = pd.DataFrame(grid).T
+    grid.index.names = ["threshold", "roll"]
+
+    # 3. Roll-date sensitivity: all 21 possible monthly roll dates.
+    offsets = []
+    for k, r in rules.items():
+        for o in range(h):
+            st = strategy_stats(_run(data, roll_dates(spread.index, h, o) * r, swap, start), swap.capital)
+            offsets.append({"strategy": k, "offset": o, **st})
+    offsets = pd.DataFrame(offsets)
+    offset_summary = offsets.groupby("strategy", sort=False)[["sharpe", "max_drawdown", "worst_month"]].describe(
+        percentiles=[0.5])[[(m, s) for m in ("sharpe", "max_drawdown", "worst_month") for s in ("min", "50%", "max")]]
+
+    # 4. Flat in backwardation (VIX > VIX3M), from the first VIX3M date, against the same rules there.
+    ok = not_backwardated(data["vix"], data["vix3m"]).reindex(spread.index)
+    start_b = ok.first_valid_index()
+    back = {}
+    for k in ("Always short", f"Conditional (spread > {th0:g})"):
+        for label, sched in (("monthly", roll), ("staggered", stag)):
+            back[f"{k} | {label}"] = _run(data, sched * rules[k], swap, start_b)
+            back[f"{k}, flat in backwardation | {label}"] = _run(data, sched * rules[k] * ok.fillna(0), swap, start_b)
+    backwardation = _table(back, swap)
+
+    # 5. Robustness: half the cost; entry one day after the signal.
+    robust = {}
+    cheap = SwapConfig(horizon=h, cost_vol_pts=cfg.cost_sensitivity_vol_pts)
+    for k, r in rules.items():
+        robust[f"{k} | cost {cfg.cost_sensitivity_vol_pts:g} vol pt"] = _run(data, stag * r, cheap, start)
+        robust[f"{k} | enter at t+1"] = _run(data, stag * r, swap, start, entry_lag=1)
+    # The backwardation filter gets the same checks: entry at t+1 and all 21 roll dates.
+    flat_b = rules["Always short"] * ok.fillna(0)
+    robust["Always short, flat in backwardation | enter at t+1"] = _run(data, stag * flat_b, swap, start_b, entry_lag=1)
+    robust["Always short (same sample) | enter at t+1"] = _run(data, stag * rules["Always short"], swap, start_b,
+                                                               entry_lag=1)
+    robustness = _table(robust, swap)
+    for name, r in (("Always short (from VIX3M start)", rules["Always short"]),
+                    ("Always short, flat in backwardation", flat_b)):
+        for o in range(h):
+            st = strategy_stats(_run(data, roll_dates(spread.index, h, o) * r, swap, start_b), swap.capital)
+            offsets = pd.concat([offsets, pd.DataFrame([{"strategy": name, "offset": o, **st}])], ignore_index=True)
+    offset_summary = offsets.groupby("strategy", sort=False)[["sharpe", "max_drawdown", "worst_month"]].describe(
+        percentiles=[0.5])[[(m, s) for m in ("sharpe", "max_drawdown", "worst_month") for s in ("min", "50%", "max")]]
+
+    # Multiple testing: deflated Sharpe of the best threshold-grid configuration (volcast.metrics).
+    trial_pnl = {}
+    for th in cfg.thresholds:
+        for label, sched in (("monthly", roll), ("staggered", stag)):
+            trial_pnl[f"{th:g} {label}"] = _run(data, sched * conditional(spread, th), swap, start)["pnl"]
+    trial_pnl = pd.DataFrame(trial_pnl)
+    srs = (trial_pnl.mean() / trial_pnl.std()).to_numpy()
+    best = trial_pnl.columns[srs.argmax()]
+    # Against zero, and the more relevant test: P&L in excess of always-short on the same roll schedule.
+    base = {"monthly": _run(data, roll * rules["Always short"], swap, start)["pnl"],
+            "staggered": _run(data, stag * rules["Always short"], swap, start)["pnl"]}
+    excess = pd.DataFrame({c: trial_pnl[c] - base[c.split()[1]] for c in trial_pnl})
+    ex_srs = np.nan_to_num((excess.mean() / excess.std()).to_numpy())
+    ex_best = excess.columns[ex_srs.argmax()]
+    dsr = pd.DataFrame({
+        "vs zero": {"best_config": best, **deflated_sharpe(trial_pnl[best], srs)},
+        "excess over always short": {"best_config": ex_best, **deflated_sharpe(excess[ex_best], ex_srs)},
+    })
+
+    # 6. Crisis windows (% of capital), staggered versions.
+    crisis = pd.DataFrame({k: period_pnl(v["pnl"], REGIMES, swap.capital)
+                           for k, v in main.items() if k.endswith("staggered")})
+    for k in ("Always short | staggered", "Always short, flat in backwardation | staggered"):
+        crisis[f"{k} (from {start_b:%Y})"] = period_pnl(back[k]["pnl"], REGIMES, swap.capital)
+
+    # 7. Tradable proxies: long SVXY / short VXX, always vs only when spread > threshold.
+    pos = conditional(spread, th0).reindex(data.index)
+    etp = {}
+    for name, col, sign in (("SVXY long", "svxy", 1.0), ("VXX short", "vxx", -1.0)):
+        px = data[col].dropna()
+        if px.empty:
+            continue
+        for rule, p in (("always", pd.Series(1.0, index=data.index)), (f"spread > {th0:g}", pos)):
+            r = etp_pnl(px, sign * p.reindex(px.index).fillna(0.0)).loc[start:]
+            etp[f"{name}, {rule}"] = etp_stats(r)
+            if col == "svxy":   # -1x until 27 Feb 2018, -0.5x after: report the two regimes too
+                etp[f"{name}, {rule}, to 2018-02-27 (-1x)"] = etp_stats(r.loc[:"2018-02-27"])
+                etp[f"{name}, {rule}, from 2018-02-28 (-0.5x)"] = etp_stats(r.loc["2018-02-28":])
+    etp = pd.DataFrame(etp).T
+
+    pnl_daily = pd.DataFrame({k: v["pnl"] for k, v in main.items()})
+    pnl_daily.to_csv(out / "strategy_daily_pnl.csv")
+    for name, t in {"strategy_headline": headline, "strategy_threshold_grid": grid,
+                    "strategy_roll_offsets": offsets, "strategy_backwardation": backwardation,
+                    "strategy_robustness": robustness, "strategy_crisis_pnl": crisis, "etp_check": etp,
+                    "strategy_grid_deflated_sharpe": dsr}.items():
+        t.to_csv(out / f"{name}.csv")
+
+    pct = ["ann_return", "ann_vol", "max_drawdown", "worst_month", "worst_21d", "time_in_market"]
+
+    def fmt(t: pd.DataFrame) -> str:
+        t = t.copy()
+        for c in t.columns:
+            if c in pct:
+                t[c] = t[c].map(lambda x: f"{x:.1%}")
+            elif c == "avg_vega_in_market":
+                t[c] = t[c].map(lambda x: f"{x:,.0f}")
+            elif t[c].dtype.kind == "f":
+                t[c] = t[c].map(lambda x: f"{x:.2f}")
+        return t.to_markdown()
+
+    n_configs = len(main) + len(grid) + len(offsets) + len(back) + len(robust)
+    lines = [
+        "# Short-variance backtests: synthetic 21-day SPY variance swaps", "",
+        f"Entries {start:%Y-%m-%d} to {data.index[-1]:%Y-%m-%d}. Vega notional ${swap.vega_notional:,.0f} per vol "
+        f"point, strike = VIX - {swap.cost_vol_pts:g} vol pt, daily mark-to-market, no cap on realized variance. "
+        f"Returns are P&L / ${swap.capital:,.0f} capital (not compounded). "
+        f"Headline conditional threshold ({th0:g}) fixed before running; {len(cfg.thresholds)} thresholds shown. "
+        f"{n_configs} backtest configurations in total in this file.", "",
+        "## Headline", "", fmt(headline), "",
+        "## Threshold grid (all values)", "", fmt(grid), "",
+        "## Roll-date sensitivity: all 21 monthly roll dates (min / median / max)", "",
+        offset_summary.round(3).to_markdown(), "",
+        f"## Flat in backwardation (VIX > VIX3M), entries from {start_b:%Y-%m-%d}", "", fmt(backwardation), "",
+        f"## Deflated Sharpe of the best of the {len(srs)} threshold-grid configurations (annualised Sharpe)", "",
+        dsr.to_markdown(), "",
+        "## Robustness (staggered)", "", fmt(robustness), "",
+        "## P&L in stress windows and calm years, % of capital (staggered)", "",
+        crisis.map(lambda x: f"{x:.1%}").to_markdown(), "",
+        "## Tradable proxies (compounded daily returns; SVXY leverage changed on 2018-02-28)", "",
+        fmt(etp), "",
+    ]
+    (out / "results_strategies.md").write_text("\n".join(lines), encoding="utf-8")
+    cols = ["ann_return", "ann_vol", "sharpe", "sortino", "max_drawdown", "worst_month", "worst_21d",
+            "skew_monthly", "time_in_market"]
+    print(headline[cols].round(3).to_string())
+    print(grid[["ann_return", "sharpe", "max_drawdown", "worst_month", "time_in_market"]].round(3).to_string())
+    print(offset_summary.round(3).to_string())
+    print(backwardation[cols].round(3).to_string())
+    print(robustness[["ann_return", "sharpe", "max_drawdown", "worst_month"]].round(3).to_string())
+    print(crisis.round(3).to_string())
+    print(dsr.to_string())
+    print(etp.round(3).to_string())
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.parse_args()
@@ -166,7 +354,8 @@ def main() -> None:
     data = load_vrp_data(cfg)
     vrp = build_vrp(data, cfg.horizon)
     milestone1(cfg, data, vrp, non_overlapping(vrp, cfg.horizon))
-    milestone2(cfg, data, vrp)
+    fc = milestone2(cfg, data, vrp)
+    milestone3(cfg, data, fc)
     print(f"Files: {cfg.output_dir}, {cfg.figure_dir}")
 
 
