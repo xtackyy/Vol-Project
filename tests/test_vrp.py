@@ -5,7 +5,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from volcast.config import ModelConfig
 from volcast.data import simulate_market
+from vrp.forecast import VIX_FEATURES, har_features, har_forecasts
 from vrp.targets import (
     build_vrp,
     forward_realized_variance,
@@ -63,6 +65,39 @@ def test_vrp_sign_and_units(market):
     np.testing.assert_allclose(v["iv_vol"], market["vix"].reindex(v.index))
     assert ((v["vrp_var"] > 0) == (v["vrp_vol"] > 0)).all()          # same sign in any units
     np.testing.assert_allclose(v["vrp_varpts"], v["iv_vol"] ** 2 - v["rv_vol"] ** 2)
+
+
+FAST = ModelConfig(min_train_days=300, refit_every=21, cv_splits=3, vol_alphas=tuple(np.logspace(-2, 3, 6)))
+
+
+@pytest.fixture(scope="module")
+def long_market() -> pd.DataFrame:
+    df = simulate_market(1300, seed=5)
+    df["vix"] = 20.0 + 5 * np.sin(np.arange(len(df)) / 40)
+    return df
+
+
+def test_har_forecast_ignores_the_future(long_market):
+    """Scrambling every price after `cut` must leave every forecast made at or before `cut` unchanged
+    (features, scaler, CV, Ridge, refits and the Jensen correction together)."""
+    cut = 1050
+    base = har_forecasts(long_market, H, FAST)
+    moved_mkt = long_market.copy()
+    shock = np.exp(np.random.default_rng(1).normal(0, 0.05, len(moved_mkt) - cut - 1)).cumprod()
+    for c in ["open", "high", "low", "close"]:
+        moved_mkt.iloc[cut + 1:, moved_mkt.columns.get_loc(c)] *= shock * 2
+    moved = har_forecasts(moved_mkt, H, FAST)
+    past = base.index[base.index <= long_market.index[cut]]
+    assert len(past) > 50
+    pd.testing.assert_frame_equal(base.loc[past], moved.loc[past])
+    later = base.index[base.index > long_market.index[cut + H]]
+    assert not np.allclose(base.loc[later], moved.loc[later])
+
+
+def test_har_forecast_contains_no_vix(long_market):
+    assert not set(VIX_FEATURES) & set(har_features(long_market).columns)
+    other = long_market.assign(vix=long_market["vix"] * 3)
+    pd.testing.assert_frame_equal(har_forecasts(long_market, H, FAST), har_forecasts(other, H, FAST))
 
 
 def test_blocks_do_not_overlap(market):
