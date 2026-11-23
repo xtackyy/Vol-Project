@@ -10,6 +10,8 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class VRPConfig:
+    underlying: str = "SPY"          # traded index proxy; its implied-vol index is `vol_index`
+    vol_index: str = "^VIX"          # holdout: QQQ with ^VXN (see HOLDOUT.md)
     start: str = "1993-01-01"        # SPY's first trading day is 1993-01-29
     end: str | None = None
     horizon: int = 21                # trading days, matching VIX's 30 calendar days
@@ -22,6 +24,9 @@ class VRPConfig:
     headline_threshold: float = 0.0
     size_cap: float = 2.0
     cost_sensitivity_vol_pts: float = 0.5   # alternative haircut (the base case is SwapConfig's 1.0)
+    # Headline entry one day after the signal: the signal uses VIX and SPY at the close of t, and VIX
+    # settles 15 minutes after SPY, so the swap is struck at VIX_{t+1}. Same-close entry (0) is the check.
+    entry_lag: int = 1
     # Vol-targeted sizing, fixed before it was run: aim the P&L vol at 10% of capital using the
     # trailing 63-day vol of a 1-unit always-short book; at most 2 units ($20k vega).
     vt_target_vol: float = 0.10

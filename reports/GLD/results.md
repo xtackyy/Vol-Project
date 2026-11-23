@@ -1,6 +1,6 @@
 # Results: GLD
 
-Out-of-sample window: **2008-11-19 → 2026-11-20** (4,529 trading days). Refit every 21 days, expanding window, 756-day burn-in. Costs: 3.0 bps per unit traded.
+Out-of-sample window: **2008-11-19 → 2026-11-20** (4,529 trading days). Refit every 21 days, expanding window, 756-day burn-in. Fills: next open. Costs: 3.0 bps per unit traded.
 
 ## Model A: 5-day forward realized volatility
 
@@ -21,11 +21,11 @@ Out-of-sample window: **2008-11-19 → 2026-11-20** (4,529 trading days). Refit 
 
 |                                  | ann_return   | ann_vol   |   sharpe |   sortino | max_drawdown   |   calmar |   skew |   sharpe_gross |   cost_drag_bps | ann_turnover   |   avg_exposure | pct_short   |
 |:---------------------------------|:-------------|:----------|---------:|----------:|:---------------|---------:|-------:|---------------:|----------------:|:---------------|---------------:|:------------|
-| Vol target + signal              | 7.1%         | 12.3%     |     0.51 |      0.71 | -40.1%         |     0.18 |  -0.41 |           0.52 |              10 | 3.3x           |           0.81 | 0.0%        |
-| Vol target + signal (long-short) | 7.1%         | 12.3%     |     0.51 |      0.71 | -40.1%         |     0.18 |  -0.41 |           0.52 |              10 | 3.3x           |           0.81 | 0.0%        |
-| Vol target only                  | 7.1%         | 12.3%     |     0.51 |      0.71 | -40.1%         |     0.18 |  -0.41 |           0.52 |              10 | 3.3x           |           0.81 | 0.0%        |
-| Signal only                      | 8.7%         | 17.3%     |     0.49 |      0.68 | -45.6%         |     0.19 |  -0.43 |           0.49 |               0 | 0.0x           |           1    | 0.0%        |
-| Buy & hold                       | 8.7%         | 17.3%     |     0.49 |      0.68 | -45.6%         |     0.19 |  -0.43 |           0.49 |               0 | 0.0x           |           1    | 0.0%        |
+| Vol target + signal              | 7.3%         | 12.3%     |     0.52 |      0.72 | -39.1%         |     0.19 |  -0.49 |           0.52 |              10 | 3.3x           |           0.81 | 0.0%        |
+| Vol target + signal (long-short) | 7.3%         | 12.3%     |     0.52 |      0.72 | -39.1%         |     0.19 |  -0.49 |           0.52 |              10 | 3.3x           |           0.81 | 0.0%        |
+| Vol target only                  | 7.3%         | 12.3%     |     0.52 |      0.72 | -39.1%         |     0.19 |  -0.49 |           0.52 |              10 | 3.3x           |           0.81 | 0.0%        |
+| Signal only                      | 8.6%         | 17.3%     |     0.48 |      0.68 | -45.6%         |     0.19 |  -0.44 |           0.48 |               0 | 0.0x           |           1    | 0.0%        |
+| Buy & hold                       | 8.6%         | 17.3%     |     0.48 |      0.68 | -45.6%         |     0.19 |  -0.44 |           0.48 |               0 | 0.0x           |           1    | 0.0%        |
 
 `sharpe` is net of trading costs, `sharpe_gross` before them; `cost_drag_bps` is the annual trading-cost drag. Signal settings: EMA span=5, hold=1d, no-trade band=0.1.
 
@@ -33,19 +33,19 @@ Out-of-sample window: **2008-11-19 → 2026-11-20** (4,529 trading days). Refit 
 
 |                                                                 |   sharpe |   sharpe_gross | ann_return   | max_drawdown   | ann_turnover   |
 |:----------------------------------------------------------------|---------:|---------------:|:-------------|:---------------|:---------------|
-| ('2008-2009 GFC', 'Vol target + signal')                        |     1.77 |           1.78 | 21.8%        | -6.3%          | 1.6x           |
-| ('2008-2009 GFC', 'Vol target + signal (long-short)')           |     1.77 |           1.78 | 21.8%        | -6.3%          | 1.6x           |
-| ('2008-2009 GFC', 'Vol target only')                            |     1.77 |           1.78 | 21.8%        | -6.3%          | 1.6x           |
-| ('2008-2009 GFC', 'Signal only')                                |     1.66 |           1.66 | 42.5%        | -12.9%         | 0.0x           |
-| ('2008-2009 GFC', 'Buy & hold')                                 |     1.66 |           1.66 | 42.5%        | -12.9%         | 0.0x           |
-| ('2010-2019 post-GFC', 'Vol target + signal')                   |     0.21 |           0.22 | 2.4%         | -40.1%         | 3.9x           |
-| ('2010-2019 post-GFC', 'Vol target + signal (long-short)')      |     0.21 |           0.22 | 2.4%         | -40.1%         | 3.9x           |
-| ('2010-2019 post-GFC', 'Vol target only')                       |     0.21 |           0.22 | 2.4%         | -40.1%         | 3.9x           |
+| ('2008-2009 GFC', 'Vol target + signal')                        |     1.65 |           1.66 | 20.0%        | -6.6%          | 1.9x           |
+| ('2008-2009 GFC', 'Vol target + signal (long-short)')           |     1.65 |           1.66 | 20.0%        | -6.6%          | 1.9x           |
+| ('2008-2009 GFC', 'Vol target only')                            |     1.65 |           1.66 | 20.0%        | -6.6%          | 1.9x           |
+| ('2008-2009 GFC', 'Signal only')                                |     1.61 |           1.61 | 41.0%        | -12.9%         | 0.9x           |
+| ('2008-2009 GFC', 'Buy & hold')                                 |     1.61 |           1.61 | 41.0%        | -12.9%         | 0.9x           |
+| ('2010-2019 post-GFC', 'Vol target + signal')                   |     0.23 |           0.24 | 2.6%         | -39.1%         | 3.9x           |
+| ('2010-2019 post-GFC', 'Vol target + signal (long-short)')      |     0.23 |           0.24 | 2.6%         | -39.1%         | 3.9x           |
+| ('2010-2019 post-GFC', 'Vol target only')                       |     0.23 |           0.24 | 2.6%         | -39.1%         | 3.9x           |
 | ('2010-2019 post-GFC', 'Signal only')                           |     0.23 |           0.23 | 2.9%         | -45.6%         | 0.0x           |
 | ('2010-2019 post-GFC', 'Buy & hold')                            |     0.23 |           0.23 | 2.9%         | -45.6%         | 0.0x           |
-| ('2020-2026 Covid & after', 'Vol target + signal')              |     0.75 |           0.75 | 12.2%        | -18.2%         | 2.8x           |
-| ('2020-2026 Covid & after', 'Vol target + signal (long-short)') |     0.75 |           0.75 | 12.2%        | -18.2%         | 2.8x           |
-| ('2020-2026 Covid & after', 'Vol target only')                  |     0.75 |           0.75 | 12.2%        | -18.2%         | 2.8x           |
+| ('2020-2026 Covid & after', 'Vol target + signal')              |     0.75 |           0.76 | 12.3%        | -17.9%         | 2.8x           |
+| ('2020-2026 Covid & after', 'Vol target + signal (long-short)') |     0.75 |           0.76 | 12.3%        | -17.9%         | 2.8x           |
+| ('2020-2026 Covid & after', 'Vol target only')                  |     0.75 |           0.76 | 12.3%        | -17.9%         | 2.8x           |
 | ('2020-2026 Covid & after', 'Signal only')                      |     0.57 |           0.57 | 12.6%        | -34.9%         | 0.0x           |
 | ('2020-2026 Covid & after', 'Buy & hold')                       |     0.57 |           0.57 | 12.6%        | -34.9%         | 0.0x           |
 

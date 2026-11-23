@@ -105,6 +105,7 @@
     "slippage_bps": 1.0,
     "borrow_spread_bps": 50.0,
     "short_fee_bps": 25.0,
+    "execution": "next_open",
     "vol_bias_correction": true
   },
   "output_dir": "reports\\risk_matched_18.6"

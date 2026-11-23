@@ -78,3 +78,35 @@ def test_deflated_sharpe_penalises_more_trials():
     assert one["deflated_sharpe"] == pytest.approx(one["psr_vs_zero"])
     assert many["deflated_sharpe"] < one["deflated_sharpe"]
     assert many["n_trials"] == 100
+
+
+def test_headline_fill_is_next_open_and_holds_yesterdays_target():
+    """The default config fills at the next open: the weight held on day t is target[t-1]."""
+    from volcast.backtest import backtest
+    from volcast.data import simulate_market
+
+    cfg = StrategyConfig(rebalance_band=0.0)
+    assert cfg.execution == "next_open"
+    mkt = simulate_market(300, seed=4)
+    target = pd.Series(np.random.default_rng(5).uniform(0.2, 1.4, len(mkt)), index=mkt.index)
+    bt = backtest(target, mkt, cfg)
+    np.testing.assert_allclose(bt.weight.iloc[1:].to_numpy(), target.iloc[:-1].to_numpy())
+    assert bt.net.iloc[0] == 0.0 and bt.weight.iloc[0] == 0.0
+    with pytest.raises(ValueError):
+        backtest(target, mkt, StrategyConfig(execution="noon"))
+
+
+def test_edge_by_year_flags_an_edge_that_comes_from_one_crisis_year():
+    from volcast.metrics import edge_by_year
+
+    idx = pd.bdate_range("2006-01-02", "2011-12-30")
+    rng = np.random.default_rng(0)
+    base = pd.Series(rng.normal(0.0004, 0.01, len(idx)), index=idx)
+    bench = base.copy()
+    bench[idx.year == 2008] -= 0.003           # benchmark crashes in 2008 only
+    strat = base * 0.999 - 0.00002             # slightly worse in every other year
+    e = edge_by_year(strat, bench, pd.Series(0.0, index=idx))
+    s = e["summary"]
+    assert s["sharpe_gap_full"] > 0
+    assert s["sharpe_gap_ex_2008_2009"] < 0
+    assert s["years_strat_beats_bench"] == "1 of 6"

@@ -30,6 +30,9 @@ class SwapConfig:
     vega_notional: float = 10_000.0   # $ per vol point
     cost_vol_pts: float = 1.0         # haircut on the strike: sell at VIX - cost
     capital: float = 1_000_000.0      # only used to express P&L as a % return
+    # Spreads widen in stress. If set, the haircut is cost_vol_pts * max(1, VIX / cost_ref_vix):
+    # 1 vol pt at VIX 20, 3 at VIX 60. None = a flat haircut.
+    cost_ref_vix: float | None = None
 
 
 def short_variance_pnl(vix: pd.Series, close: pd.Series, size: pd.Series, cfg: SwapConfig,
@@ -50,7 +53,8 @@ def short_variance_pnl(vix: pd.Series, close: pd.Series, size: pd.Series, cfg: S
         e = sig + entry_lag
         if e >= n or not np.isfinite(v[e]):
             continue
-        K = v[e] - cfg.cost_vol_pts
+        cost = cfg.cost_vol_pts * (max(1.0, v[e] / cfg.cost_ref_vix) if cfg.cost_ref_vix else 1.0)
+        K = v[e] - cost
         N = s[sig] * cfg.vega_notional / (2 * K)
         last = min(e + T, n - 1)
         k = np.arange(0, last - e + 1)

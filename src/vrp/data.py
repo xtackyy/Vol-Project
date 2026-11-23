@@ -35,9 +35,10 @@ def load_raw(ticker: str, cfg: VRPConfig) -> pd.DataFrame:
 
 
 def load_vrp_data(cfg: VRPConfig) -> pd.DataFrame:
-    spy = load_raw(SPY, cfg)[["open", "high", "low", "close", "volume"]]
-    out = spy[(spy[["open", "high", "low", "close"]] > 0).all(axis=1)].copy()
-    for col, ticker in SERIES.items():
+    """Underlying OHLCV (SPY by default) plus the implied-vol index as `vix` and the VIX family."""
+    px = load_raw(cfg.underlying, cfg)[["open", "high", "low", "close", "volume"]]
+    out = px[(px[["open", "high", "low", "close"]] > 0).all(axis=1)].copy()
+    for col, ticker in (SERIES | {"vix": cfg.vol_index}).items():
         try:
             out[col] = align_to(load_raw(ticker, cfg)["close"], out.index)
         except Exception as exc:  # pragma: no cover - network dependent

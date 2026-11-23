@@ -66,6 +66,9 @@ class StrategyConfig:
     slippage_bps: float = 1.0        # half-spread + impact, per unit traded
     borrow_spread_bps: float = 50.0  # annual spread over rf paid on leverage > 1
     short_fee_bps: float = 25.0      # annual stock-borrow fee on short notional (long-short variant)
+    # Fill time. "next_open": a target decided at the close of t trades at the open of t+1 (the
+    # headline, since the signal uses day t's own high, low and close). "close": same-close fills.
+    execution: str = "next_open"
     vol_bias_correction: bool = True  # scale exp(log-vol forecast) by a point-in-time smearing
                                       # factor from past errors (Jensen: exp(E[log s]) < E[s])
 

@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -63,7 +64,8 @@ def _reg_md(table: pd.DataFrame) -> str:
     return f"{_md(table, 3)}\n\nR² = {table.attrs['r2']:.3f}, n = {table.attrs['n']:,}"
 
 
-def milestone1(cfg: VRPConfig, data: pd.DataFrame, vrp: pd.DataFrame, blocks: pd.DataFrame) -> None:
+def milestone1(cfg: VRPConfig, data: pd.DataFrame, vrp: pd.DataFrame, blocks: pd.DataFrame,
+               make_plots: bool = True) -> None:
     h = cfg.horizon
     summary = describe_vrp(blocks)
     daily = vrp.dropna(subset=["vrp_vol"])
@@ -86,11 +88,12 @@ def milestone1(cfg: VRPConfig, data: pd.DataFrame, vrp: pd.DataFrame, blocks: pd
     blocks.to_csv(out / "vrp_blocks.csv")
     range_vs_cc.to_csv(out / "rv_close_vs_range.csv", header=["value"])
 
-    plots.implied_vs_realized(vrp, {k: REGIMES[k] for k in CRISES}, cfg.figure_dir / "1_implied_vs_realized.png")
-    plots.vrp_histogram(blocks, cfg.figure_dir / "2_vrp_histogram.png")
+    if make_plots:   # SPY-labelled figures; holdout runs write tables only
+        plots.implied_vs_realized(vrp, {k: REGIMES[k] for k in CRISES}, cfg.figure_dir / "1_implied_vs_realized.png")
+        plots.vrp_histogram(blocks, cfg.figure_dir / "2_vrp_histogram.png")
 
     lines = [
-        "# Variance risk premium: SPY, VIX-implied vs realized", "",
+        f"# Variance risk premium: {cfg.underlying}, {cfg.vol_index}-implied vs realized", "",
         f"Daily data {data.index[0]:%Y-%m-%d} to {data.index[-1]:%Y-%m-%d}. Horizon {h} trading days. "
         f"Non-overlapping blocks: every {h}th day from {summary['first_entry']} ({int(summary['blocks'])} blocks).",
         "VRP in vol points = VIX at t minus realized vol over t+1..t+21; variance points = vol points squared.", "",
@@ -144,7 +147,7 @@ def milestone2(cfg: VRPConfig, data: pd.DataFrame, vrp: pd.DataFrame) -> pd.Data
         t.assign(r2=t.attrs["r2"], n=t.attrs["n"]).to_csv(out / f"{name}.csv")
 
     lines = [
-        "# HAR-RV vs VIX: forecasting SPY realized vol over the next 21 trading days", "",
+        f"# HAR-RV vs {cfg.vol_index}: forecasting {cfg.underlying} realized vol over the next 21 trading days", "",
         f"Out-of-sample dates {scored.index[0]:%Y-%m-%d} to {scored.index[-1]:%Y-%m-%d} "
         f"({len(scored):,} days; {len(blocks)} non-overlapping blocks). Forecasts in vol points. HAR models are "
         "walk-forward (expanding window, monthly refits, purged), without VIX inputs, Jensen-corrected so the "
@@ -173,7 +176,7 @@ def milestone2(cfg: VRPConfig, data: pd.DataFrame, vrp: pd.DataFrame) -> pd.Data
     return fc
 
 
-def _run(data: pd.DataFrame, size: pd.Series, swap: SwapConfig, start, entry_lag: int = 0) -> pd.DataFrame:
+def _run(data: pd.DataFrame, size: pd.Series, swap: SwapConfig, start, entry_lag: int) -> pd.DataFrame:
     return short_variance_pnl(data["vix"], data["close"], size, swap, entry_lag).loc[start:]
 
 
@@ -188,8 +191,9 @@ def milestone3(cfg: VRPConfig, data: pd.DataFrame, fc: pd.DataFrame) -> None:
     spread = fc["spread"]
     start = spread.index[0]
     th0 = cfg.headline_threshold
+    lag = cfg.entry_lag
     # Vol-targeted size from the trailing P&L vol of a 1-unit always-short book (data up to t).
-    unit = short_variance_pnl(data["vix"], data["close"], staggered(data.index, h), swap)["pnl"]
+    unit = short_variance_pnl(data["vix"], data["close"], staggered(data.index, h), swap, lag)["pnl"]
     vt = vol_target_size(unit, swap.capital, cfg.vt_target_vol, cfg.vt_lookback, cfg.size_cap).reindex(spread.index)
     rules = {
         "Always short": always(spread),
@@ -201,8 +205,8 @@ def milestone3(cfg: VRPConfig, data: pd.DataFrame, fc: pd.DataFrame) -> None:
     roll, stag = roll_dates(spread.index, h), staggered(spread.index, h)
 
     # 1. Headline: monthly roll and daily-staggered tranches, 1998+.
-    main = {f"{k} | monthly": _run(data, roll * r, swap, start) for k, r in rules.items()}
-    main |= {f"{k} | staggered": _run(data, stag * r, swap, start) for k, r in rules.items()}
+    main = {f"{k} | monthly": _run(data, roll * r, swap, start, lag) for k, r in rules.items()}
+    main |= {f"{k} | staggered": _run(data, stag * r, swap, start, lag) for k, r in rules.items()}
     # Comparison only: constant-size always-short scaled (with hindsight) to the vol-targeted book's
     # average risk, so drawdowns are compared at equal risk. P&L is linear in size, costs included.
     plain, vt_book = main["Always short | staggered"], main["Always short, vol-targeted | staggered"]
@@ -215,7 +219,7 @@ def milestone3(cfg: VRPConfig, data: pd.DataFrame, fc: pd.DataFrame) -> None:
     grid = {}
     for th in cfg.thresholds:
         for label, sched in (("monthly", roll), ("staggered", stag)):
-            res = _run(data, sched * conditional(spread, th), swap, start)
+            res = _run(data, sched * conditional(spread, th), swap, start, lag)
             grid[(th, label)] = strategy_stats(res, swap.capital)
     grid = pd.DataFrame(grid).T
     grid.index.names = ["threshold", "roll"]
@@ -224,7 +228,7 @@ def milestone3(cfg: VRPConfig, data: pd.DataFrame, fc: pd.DataFrame) -> None:
     offsets = []
     for k, r in rules.items():
         for o in range(h):
-            st = strategy_stats(_run(data, roll_dates(spread.index, h, o) * r, swap, start), swap.capital)
+            st = strategy_stats(_run(data, roll_dates(spread.index, h, o) * r, swap, start, lag), swap.capital)
             offsets.append({"strategy": k, "offset": o, **st})
     offsets = pd.DataFrame(offsets)
     offset_summary = offsets.groupby("strategy", sort=False)[["sharpe", "max_drawdown", "worst_month"]].describe(
@@ -236,26 +240,51 @@ def milestone3(cfg: VRPConfig, data: pd.DataFrame, fc: pd.DataFrame) -> None:
     back = {}
     for k in ("Always short", f"Conditional (spread > {th0:g})"):
         for label, sched in (("monthly", roll), ("staggered", stag)):
-            back[f"{k} | {label}"] = _run(data, sched * rules[k], swap, start_b)
-            back[f"{k}, flat in backwardation | {label}"] = _run(data, sched * rules[k] * ok.fillna(0), swap, start_b)
+            back[f"{k} | {label}"] = _run(data, sched * rules[k], swap, start_b, lag)
+            back[f"{k}, flat in backwardation | {label}"] = _run(data, sched * rules[k] * ok.fillna(0), swap,
+                                                                 start_b, lag)
     backwardation = _table(back, swap)
 
-    # 5. Robustness: half the cost; entry one day after the signal.
+    # 5. Robustness: half the cost; entry at the signal's own close (the headline enters a day later).
     robust = {}
     cheap = SwapConfig(horizon=h, cost_vol_pts=cfg.cost_sensitivity_vol_pts)
+    same = "enter at t (same close)"
     for k, r in rules.items():
-        robust[f"{k} | cost {cfg.cost_sensitivity_vol_pts:g} vol pt"] = _run(data, stag * r, cheap, start)
-        robust[f"{k} | enter at t+1"] = _run(data, stag * r, swap, start, entry_lag=1)
-    # The backwardation filter gets the same checks: entry at t+1 and all 21 roll dates.
+        robust[f"{k} | cost {cfg.cost_sensitivity_vol_pts:g} vol pt"] = _run(data, stag * r, cheap, start, lag)
+        robust[f"{k} | {same}"] = _run(data, stag * r, swap, start, entry_lag=0)
+    # The backwardation filter gets the same checks: same-close entry and all 21 roll dates.
     flat_b = rules["Always short"] * ok.fillna(0)
-    robust["Always short, flat in backwardation | enter at t+1"] = _run(data, stag * flat_b, swap, start_b, entry_lag=1)
-    robust["Always short (same sample) | enter at t+1"] = _run(data, stag * rules["Always short"], swap, start_b,
-                                                               entry_lag=1)
+    robust[f"Always short, flat in backwardation | {same}"] = _run(data, stag * flat_b, swap, start_b, entry_lag=0)
+    robust[f"Always short (same sample) | {same}"] = _run(data, stag * rules["Always short"], swap, start_b,
+                                                          entry_lag=0)
+
+    # 5b. Cost multiples: 0, 1 and 2 vol points, and a haircut that widens with VIX (fixed before
+    # running: 1 vol pt x max(1, VIX / 20)), on the three main staggered rules.
+    cost_cases = {"0 vol pt": SwapConfig(horizon=h, cost_vol_pts=0.0), "1 vol pt (base)": swap,
+                  "2 vol pt": SwapConfig(horizon=h, cost_vol_pts=2.0),
+                  "1 vol pt x max(1, VIX/20)": SwapConfig(horizon=h, cost_ref_vix=20.0)}
+    costs = {}
+    for k in ("Always short", f"Conditional (spread > {th0:g})", "Always short, vol-targeted"):
+        for label, sw in cost_cases.items():
+            costs[f"{k} | {label}"] = _run(data, stag * rules[k], sw, start, lag)
+    cost_table = _table(costs, swap)
+
+    # 5c. Stability: P&L by year, and the rolling 12-month Sharpe of always short by thirds of the sample.
+    a_pnl = main["Always short | staggered"]["pnl"]
+    c_pnl = main[f"Conditional (spread > {th0:g}) | staggered"]["pnl"]
+    by_year = pd.DataFrame({"Always short": a_pnl.groupby(a_pnl.index.year).sum(),
+                            f"Conditional (spread > {th0:g})": c_pnl.groupby(c_pnl.index.year).sum()}) / swap.capital
+    by_year["Conditional minus always short"] = by_year.iloc[:, 1] - by_year.iloc[:, 0]
+    roll_sr = (a_pnl.rolling(252).mean() / a_pnl.rolling(252).std() * np.sqrt(252)).dropna()
+    n3 = len(roll_sr) // 3
+    thirds = [roll_sr.iloc[i * n3:(i + 1) * n3 if i < 2 else None] for i in range(3)]
+    decay = pd.DataFrame({f"{t.index[0]:%Y-%m} to {t.index[-1]:%Y-%m}": {
+        "mean rolling 12m Sharpe": t.mean(), "share of days < 0": float((t < 0).mean())} for t in thirds}).T
     robustness = _table(robust, swap)
     for name, r in (("Always short (from VIX3M start)", rules["Always short"]),
                     ("Always short, flat in backwardation", flat_b)):
         for o in range(h):
-            st = strategy_stats(_run(data, roll_dates(spread.index, h, o) * r, swap, start_b), swap.capital)
+            st = strategy_stats(_run(data, roll_dates(spread.index, h, o) * r, swap, start_b, lag), swap.capital)
             offsets = pd.concat([offsets, pd.DataFrame([{"strategy": name, "offset": o, **st}])], ignore_index=True)
     offset_summary = offsets.groupby("strategy", sort=False)[["sharpe", "max_drawdown", "worst_month"]].describe(
         percentiles=[0.5])[[(m, s) for m in ("sharpe", "max_drawdown", "worst_month") for s in ("min", "50%", "max")]]
@@ -264,13 +293,13 @@ def milestone3(cfg: VRPConfig, data: pd.DataFrame, fc: pd.DataFrame) -> None:
     trial_pnl = {}
     for th in cfg.thresholds:
         for label, sched in (("monthly", roll), ("staggered", stag)):
-            trial_pnl[f"{th:g} {label}"] = _run(data, sched * conditional(spread, th), swap, start)["pnl"]
+            trial_pnl[f"{th:g} {label}"] = _run(data, sched * conditional(spread, th), swap, start, lag)["pnl"]
     trial_pnl = pd.DataFrame(trial_pnl)
     srs = (trial_pnl.mean() / trial_pnl.std()).to_numpy()
     best = trial_pnl.columns[srs.argmax()]
     # Against zero, and the more relevant test: P&L in excess of always-short on the same roll schedule.
-    base = {"monthly": _run(data, roll * rules["Always short"], swap, start)["pnl"],
-            "staggered": _run(data, stag * rules["Always short"], swap, start)["pnl"]}
+    base = {"monthly": _run(data, roll * rules["Always short"], swap, start, lag)["pnl"],
+            "staggered": _run(data, stag * rules["Always short"], swap, start, lag)["pnl"]}
     excess = pd.DataFrame({c: trial_pnl[c] - base[c.split()[1]] for c in trial_pnl})
     ex_srs = np.nan_to_num((excess.mean() / excess.std()).to_numpy())
     ex_best = excess.columns[ex_srs.argmax()]
@@ -288,7 +317,8 @@ def milestone3(cfg: VRPConfig, data: pd.DataFrame, fc: pd.DataFrame) -> None:
     # 7. Tradable proxies: long SVXY / short VXX, always vs only when spread > threshold.
     pos = conditional(spread, th0).reindex(data.index)
     etp = {}
-    for name, col, sign in (("SVXY long", "svxy", 1.0), ("VXX short", "vxx", -1.0)):
+    etp_list = (("SVXY long", "svxy", 1.0), ("VXX short", "vxx", -1.0)) if cfg.underlying == "SPY" else ()
+    for name, col, sign in etp_list:
         px = data[col].dropna()
         if px.empty:
             continue
@@ -305,7 +335,8 @@ def milestone3(cfg: VRPConfig, data: pd.DataFrame, fc: pd.DataFrame) -> None:
     for name, t in {"strategy_headline": headline, "strategy_threshold_grid": grid,
                     "strategy_roll_offsets": offsets, "strategy_backwardation": backwardation,
                     "strategy_robustness": robustness, "strategy_crisis_pnl": crisis, "etp_check": etp,
-                    "strategy_grid_deflated_sharpe": dsr}.items():
+                    "strategy_grid_deflated_sharpe": dsr, "strategy_costs": cost_table,
+                    "strategy_by_year": by_year, "strategy_decay": decay}.items():
         t.to_csv(out / f"{name}.csv")
 
     pct = ["ann_return", "ann_vol", "max_drawdown", "worst_month", "worst_21d", "time_in_market"]
@@ -325,10 +356,12 @@ def milestone3(cfg: VRPConfig, data: pd.DataFrame, fc: pd.DataFrame) -> None:
     vt_entry = pd.DataFrame({k: {"size_at_start": vt.asof(pd.Timestamp(a)),
                                  "vix_at_start": data["vix"].asof(pd.Timestamp(a))}
                              for k, (a, _) in REGIMES.items() if k in CRISES}).T
-    n_configs = len(main) + len(grid) + len(offsets) + len(back) + len(robust)
+    n_configs = len(main) + len(grid) + len(offsets) + len(back) + len(robust) + len(costs)
     lines = [
-        "# Short-variance backtests: synthetic 21-day SPY variance swaps", "",
-        f"Entries {start:%Y-%m-%d} to {data.index[-1]:%Y-%m-%d}. Vega notional ${swap.vega_notional:,.0f} per vol "
+        f"# Short-variance backtests: synthetic 21-day {cfg.underlying} variance swaps "
+        f"(implied vol: {cfg.vol_index})", "",
+        f"Signals {start:%Y-%m-%d} to {data.index[-1]:%Y-%m-%d}; each swap is struck {lag} trading day(s) "
+        f"after its signal, at that day's VIX close. Vega notional ${swap.vega_notional:,.0f} per vol "
         f"point, strike = VIX - {swap.cost_vol_pts:g} vol pt, daily mark-to-market, no cap on realized variance. "
         f"Returns are P&L / ${swap.capital:,.0f} capital (not compounded). "
         f"Headline conditional threshold ({th0:g}) fixed before running; {len(cfg.thresholds)} thresholds shown. "
@@ -341,6 +374,13 @@ def milestone3(cfg: VRPConfig, data: pd.DataFrame, fc: pd.DataFrame) -> None:
         f"## Deflated Sharpe of the best of the {len(srs)} threshold-grid configurations (annualised Sharpe)", "",
         dsr.to_markdown(), "",
         "## Robustness (staggered)", "", fmt(robustness), "",
+        "## Cost multiples (staggered)", "",
+        "The VIX-scaled haircut was fixed before running: 1 vol pt x max(1, VIX / 20), so 3 vol pts at VIX 60.",
+        "", fmt(cost_table), "",
+        "## P&L by year, % of capital (staggered)", "", by_year.map(lambda x: f"{x:.1%}").to_markdown(), "",
+        f"Conditional beats always short in {(by_year.iloc[:, 2] > 0).sum()} of {len(by_year)} years.", "",
+        "## Rolling 12-month Sharpe of always short, by thirds of the sample", "",
+        decay.round(2).to_markdown(), "",
         f"## Vol-targeted size on the first day of each stress window (target {cfg.vt_target_vol:.0%}, "
         f"{cfg.vt_lookback}-day trailing vol, cap {cfg.size_cap:g})", "",
         "The rule sizes from the last 63 days. Before the sharp crashes (2008, 2011, 2018, 2020) "
@@ -388,19 +428,26 @@ def milestone4(cfg: VRPConfig) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.parse_args()
+    ap.add_argument("--underlying", default="SPY")
+    ap.add_argument("--vol-index", default="^VIX")
+    ap.add_argument("--output", type=Path, default=None, help="default reports/vrp (+ figures)")
+    a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
-    cfg = VRPConfig()
+    cfg = VRPConfig(underlying=a.underlying, vol_index=a.vol_index)
+    holdout = a.output is not None
+    if holdout:
+        cfg = replace(cfg, output_dir=a.output, figure_dir=a.output / "figures")
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
     cfg.figure_dir.mkdir(parents=True, exist_ok=True)
     pd.set_option("display.width", 200)
 
     data = load_vrp_data(cfg)
     vrp = build_vrp(data, cfg.horizon)
-    milestone1(cfg, data, vrp, non_overlapping(vrp, cfg.horizon))
+    milestone1(cfg, data, vrp, non_overlapping(vrp, cfg.horizon), make_plots=not holdout)
     fc = milestone2(cfg, data, vrp)
     milestone3(cfg, data, fc)
-    milestone4(cfg)
+    if not holdout:
+        milestone4(cfg)
     print(f"Files: {cfg.output_dir}, {cfg.figure_dir}")
 
 

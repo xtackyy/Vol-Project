@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 
 from . import plotting
-from .backtest import BacktestResult, buy_and_hold, run_backtest
+from .backtest import BacktestResult, backtest, buy_and_hold_market
 from .config import REGIMES, Config, StrategyConfig
 from .data import load_market_data
 from .features import HAR_FEATURES, make_dataset, proxy_calibration, vol_feature_columns
@@ -160,10 +160,12 @@ def evaluate_strategy(fc: Forecasts, s: StrategyConfig) -> StrategyResult:
         bias = forecast_bias_correction(fc.targets["y_vol"], fc.vol_ridge.predictions, fc.vol_horizon)
         calibration = calibration.reindex(bias.index).ffill() * bias.fillna(1.0)
     weights = target_weights(fc.vol_ridge.predictions, exp_ret, s, vol_calibration=calibration)
-    asset_ret = df["close"].pct_change()
-    backtests = {STRATEGY_NAMES[c]: run_backtest(weights[c], asset_ret, df["rf"], s) for c in weights}
-    backtests["Buy & hold"] = buy_and_hold(weights.index, asset_ret, df["rf"], s)
-    perf = pd.DataFrame({k: performance(b.net, df["rf"], b.turnover, b.weight, b.gross, b.costs)
+    backtests = {STRATEGY_NAMES[c]: backtest(weights[c], df, s) for c in weights}
+    backtests["Buy & hold"] = buy_and_hold_market(weights.index, df, s)
+    # performance() drops the first day's turnover as the initial buy; with next-open fills that
+    # buy happens on day 1, so day 0 (no trade) is dropped here first.
+    skip = 1 if s.execution == "next_open" else 0
+    perf = pd.DataFrame({k: performance(b.net, df["rf"], b.turnover.iloc[skip:], b.weight, b.gross, b.costs)
                          for k, b in backtests.items()}).T
     regimes = regime_table(backtests, df["rf"], REGIMES)
     return StrategyResult(weights, exp_ret, backtests, perf, regimes)
@@ -244,7 +246,7 @@ def write_markdown_report(path: Path, cfg: Config, df: pd.DataFrame, oos: pd.Ind
         "",
         f"Out-of-sample window: **{oos[0].date()} → {oos[-1].date()}** ({len(oos):,} trading days). "
         f"Refit every {cfg.model.refit_every} days, {'expanding' if cfg.model.rolling_window is None else 'rolling'} "
-        f"window, {cfg.model.min_train_days}-day burn-in. Costs: "
+        f"window, {cfg.model.min_train_days}-day burn-in. Fills: {cfg.strategy.execution.replace('_', ' ')}. Costs: "
         f"{cfg.strategy.commission_bps + cfg.strategy.slippage_bps:.1f} bps per unit traded.",
         "",
         f"## Model A: {cfg.model.vol_horizon}-day forward realized volatility",

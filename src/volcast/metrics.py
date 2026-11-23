@@ -211,3 +211,18 @@ def deflated_sharpe(best_ret: pd.Series, trial_sharpes: np.ndarray,
             "sharpe_trials_sd_ann": float(np.std(srs, ddof=1) * ann),
             "expected_max_sharpe_ann": sr0 * ann, "psr_vs_zero": probabilistic_sharpe(x, 0.0),
             "deflated_sharpe": probabilistic_sharpe(x, sr0)}
+
+
+def edge_by_year(strat: pd.Series, bench: pd.Series, rf: pd.Series,
+                 drop: tuple[tuple[int, ...], ...] = ((2008, 2009), (2008, 2009, 2020))) -> dict:
+    """How concentrated a Sharpe edge is: yearly Sharpe gaps and the gap with crisis years removed."""
+    yearly = pd.DataFrame({"strat": strat, "bench": bench, "rf": rf.reindex(strat.index).fillna(0.0)})
+    gaps = yearly.groupby(yearly.index.year).apply(
+        lambda g: sharpe(g["strat"], g["rf"]) - sharpe(g["bench"], g["rf"]))
+    out = {"sharpe_gap_full": sharpe(strat, rf) - sharpe(bench, rf),
+           "years_strat_beats_bench": f"{int((gaps > 0).sum())} of {len(gaps)}"}
+    for years in drop:
+        keep = ~strat.index.year.isin(years)
+        out["sharpe_gap_ex_" + "_".join(str(y) for y in years)] = (
+            sharpe(strat[keep], rf) - sharpe(bench[keep], rf))
+    return {"summary": out, "yearly_gap": gaps}

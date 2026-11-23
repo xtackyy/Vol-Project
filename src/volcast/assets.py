@@ -50,6 +50,15 @@ PROFILES: dict[str, AssetProfile] = {
         # DX-Y.NYB (ICE dollar index) has history back to the 1970s; UUP is the ETF fallback.
         aux={"dxy": ("DX-Y.NYB", "UUP"), "tnx": ("^TNX",), "tip": ("TIP",), "ief": ("IEF",)},
     ),
+    # Holdout assets (HOLDOUT.md): never run before the frozen config. Each reuses its asset class's
+    # feature block and prior; costs were set from typical spreads before any result was seen.
+    "IWM": AssetProfile("IWM", "equity", 0.5, 1.5, 0.04),
+    "EFA": AssetProfile("EFA", "equity", 0.5, 2.0, 0.04),
+    "EEM": AssetProfile("EEM", "equity", 0.5, 2.5, 0.04),
+    "IEF": AssetProfile(
+        "IEF", "rates", 0.5, 1.5, 0.01,
+        aux={"tnx": ("^TNX",), "irx": ("^IRX",), "spy": ("SPY",)},
+    ),
 }
 
 

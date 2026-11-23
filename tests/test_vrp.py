@@ -141,6 +141,18 @@ def test_swap_ignores_the_entry_days_own_return(market):
     assert lagged["pnl"].iloc[e] == 0 and lagged["pnl"].iloc[e + 1] != 0
 
 
+def test_vix_scaled_cost_widens_only_above_the_reference_level():
+    idx = pd.bdate_range("2020-01-01", periods=60)
+    for vix, expected_cost in ((15.0, 1.0), (20.0, 1.0), (60.0, 3.0)):
+        flat = pd.DataFrame({"close": 100.0, "vix": vix}, index=idx)
+        size = pd.Series(0.0, index=idx)
+        size.iloc[5] = 1.0
+        cfg = SwapConfig(horizon=H, cost_vol_pts=1.0, cost_ref_vix=20.0)
+        bt = short_variance_pnl(flat["vix"], flat["close"], size, cfg)
+        K = vix - expected_cost
+        assert bt["pnl"].iloc[5] == pytest.approx(cfg.vega_notional / (2 * K) * (K**2 - vix**2))
+
+
 def test_short_variance_earns_when_nothing_moves():
     idx = pd.bdate_range("2020-01-01", periods=60)
     flat = pd.DataFrame({"close": 100.0, "vix": 20.0}, index=idx)
