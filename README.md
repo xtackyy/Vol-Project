@@ -6,6 +6,16 @@
 Out-of-sample forecasting of 5-day and 21-day realized volatility and excess returns, used to size
 vol-targeted positions in SPY, TLT and GLD, backtested net of costs and financing.
 
+## In short
+
+- **Question:** does a better volatility forecast make vol targeting beat buy & hold?
+- **Answer:** the forecast is better (SPY out-of-sample R² 0.707 vs 0.651 for the standard HAR model, and it
+  also wins on four ETFs it had never seen). The strategy mainly cuts drawdowns: SPY −28.6% vs −55.2%.
+- **But:** the Sharpe gain is small (0.58 vs 0.52), comes from 2008-09 alone, and is negative on all
+  four holdout ETFs.
+
+![SPY: vol target vs buy & hold](reports/SPY/figures/2_equity_curve.png)
+
 ## Executive summary
 
 - **What is tested.** Ridge on HAR-RV features forecasts forward realized vol. Lasso forecasts forward
