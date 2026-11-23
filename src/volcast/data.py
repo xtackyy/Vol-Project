@@ -39,7 +39,7 @@ def _download(ticker: str, start: str, end: str | None) -> pd.DataFrame:
     return hist
 
 
-def _cached(ticker: str, start: str, end: str | None, cache_dir: Path) -> pd.DataFrame:
+def cached_history(ticker: str, start: str, end: str | None, cache_dir: Path) -> pd.DataFrame:
     cache_dir.mkdir(parents=True, exist_ok=True)
     safe = ticker.replace("^", "IDX_")
     path = cache_dir / f"{safe}_{start}_{end or 'latest'}.csv"
@@ -68,7 +68,7 @@ def _load_close(tickers: tuple[str, ...] | str, cfg: DataConfig) -> tuple[pd.Ser
     errors = []
     for t in tickers:
         try:
-            return _cached(t, cfg.start, cfg.end, cfg.cache_dir)["close"], t
+            return cached_history(t, cfg.start, cfg.end, cfg.cache_dir)["close"], t
         except Exception as exc:  # pragma: no cover - network dependent
             errors.append(f"{t}: {exc}")
     raise RuntimeError("; ".join(errors))
@@ -80,7 +80,7 @@ def load_market_data(cfg: DataConfig) -> pd.DataFrame:
         mkt = simulate_market(cfg.synthetic_days, seed=cfg.seed)
         return add_synthetic_aux(mkt, tuple(cfg.aux_tickers), seed=cfg.seed)
 
-    px = _cached(cfg.ticker, cfg.start, cfg.end, cfg.cache_dir)[OHLCV].copy()
+    px = cached_history(cfg.ticker, cfg.start, cfg.end, cfg.cache_dir)[OHLCV].copy()
     px = px[(px[["open", "high", "low", "close"]] > 0).all(axis=1)]
 
     # Risk-free: ^IRX is an annualised % yield observed at the close of t.

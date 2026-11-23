@@ -9,3 +9,4 @@ reports/*.csv
 reports/*.json
 !reports/figures/.gitkeep
 .ipynb_checkpoints/
+data/raw/
